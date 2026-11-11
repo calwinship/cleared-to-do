@@ -13,227 +13,172 @@
 <style>
   :root {
     --bg: #0b0f0d;
+    --panel: #0f1512;
     --bay: #141a17;
     --rail: #232c27;
     --rail-hi: #2f3a34;
     --ink-dim: #a3b2a8;
     --ink: #c9d6cd;
+    --ink-hi: #e8f1eb;
     --phosphor: #8df0a8;
     --amber: #f2c14e;
     --paper-seq: #d9ecc9;
-    --paper-seq-edge: #b9d6a5;
+    --paper-seq-edge: #9fc98a;
     --paper-hold: #efe3a0;
-    --paper-hold-edge: #d8c873;
+    --paper-hold-edge: #d1bf62;
     --paper-ink: #1c261f;
     --paper-ink-dim: #36423a;
-    --paper-rule: rgba(28, 38, 31, .22);
-    --stamp: #9c1f18;
+    --paper-rule: rgba(28, 38, 31, .2);
     --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: var(--bg); color: var(--ink); }
-  body {
-    font-family: var(--mono);
-    font-size: 15px;
-    line-height: 1.4;
-    min-height: 100dvh;
-    -webkit-font-smoothing: antialiased;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .wrap { max-width: 560px; margin: 0 auto; padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+  body { font: 15px/1.4 var(--mono); min-height: 100dvh; -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+  button { font-family: inherit; }
+  .wrap { max-width: 560px; margin: 0 auto; padding: 12px 16px calc(40px + env(safe-area-inset-bottom)); }
 
   /* Header */
-  header { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 8px 0 14px; border-bottom: 1px solid var(--rail); }
-  .brand h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: .06em; color: #e8f1eb; text-transform: uppercase; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 10px; }
+  .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .06em; color: var(--ink-hi); text-transform: uppercase; }
   .brand p { margin: 2px 0 0; font-size: 12px; color: var(--ink-dim); letter-spacing: .04em; }
-  .clock { text-align: right; font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; white-space: nowrap; }
-  .clock b { display: block; font-size: 18px; color: var(--phosphor); font-weight: 600; letter-spacing: .04em; }
-  .clock span { color: var(--ink-dim); }
+  .help { appearance: none; flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rail-hi); background: transparent; color: var(--ink); font-weight: 700; font-size: 16px; cursor: pointer; }
+  .help:focus-visible, .btn:focus-visible, .chk:focus-visible, .handle:focus-visible, .time:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
 
-  /* Brain dump */
-  .intake { margin-top: 18px; }
-  .label { display: flex; justify-content: space-between; font-size: 11px; letter-spacing: .14em; color: var(--ink-dim); text-transform: uppercase; margin-bottom: 6px; }
-  textarea {
-    width: 100%; min-height: 168px; resize: vertical;
-    background: #0f1512; color: var(--phosphor);
-    border: 1px solid var(--rail-hi); border-radius: 6px;
-    padding: 12px; font: 15px/1.5 var(--mono);
-    caret-color: var(--phosphor);
+  /* Layout: radar above the list on phones, side by side on wide screens */
+  .app { display: grid; gap: 14px; }
+  @media (min-width: 960px) {
+    .wrap { max-width: 1120px; }
+    .app { grid-template-columns: minmax(0, 1fr) minmax(0, 520px); align-items: start; gap: 28px; }
+    .radar { position: sticky; top: 16px; }
   }
-  textarea::placeholder { color: #7f9488; }
-  textarea:focus { outline: 2px solid #3f7d55; outline-offset: 1px; }
-  .btn {
-    appearance: none; border: 0; cursor: pointer; font: 600 14px var(--mono); letter-spacing: .12em; text-transform: uppercase;
-    border-radius: 6px; padding: 14px 16px; min-height: 48px;
-  }
-  .btn-primary { width: 100%; margin-top: 10px; background: var(--phosphor); color: #06200f; }
-  .btn-primary:active { transform: translateY(1px); }
+
+  /* Radar */
+  .scope { display: block; width: 100%; max-width: min(100%, 48vh); margin: 0 auto; aspect-ratio: 1; touch-action: manipulation; overflow: visible; }
+  @media (min-width: 960px) { .scope { max-width: min(100%, 78vh); } }
+  .scope-bg { fill: #08110c; stroke: var(--rail-hi); stroke-width: 3; }
+  .scope .ring { fill: none; stroke: #18291f; stroke-width: 2; }
+  .scope .ring-label { fill: #5d7d68; font: 24px var(--mono); }
+  .scope .runway { stroke: #6f8378; stroke-linecap: butt; }
+  .scope .rwy-label { fill: #6f8378; font: 600 24px var(--mono); }
+  .scope .centreline { fill: none; stroke: #2c5a3b; stroke-width: 3; stroke-dasharray: 12 12; }
+  .scope .holdring { fill: none; stroke: #5a4c1c; stroke-width: 3; stroke-dasharray: 10 10; }
+  .scope .hold-label { fill: #7d6a2a; font: 600 24px var(--mono); letter-spacing: 3px; }
+  .scope .badge { fill: var(--amber); font: 600 26px var(--mono); letter-spacing: 2px; }
+  .scope .ac { opacity: .5; }
+  .scope .ac .blip { fill: none; stroke: #5d8a6b; stroke-width: 2.5; }
+  .scope .ac .vec { stroke: #3f6a4d; stroke-width: 2; }
+  .scope .ac .ac-label { fill: #6f9a7c; font: 20px var(--mono); }
+  .scope .ac.sim .blip, .scope .ac.sim .vec { stroke: #8a7535; }
+  .scope .ac.sim .ac-label { fill: #8a7535; }
+  .scope .task { cursor: pointer; outline: none; }
+  .scope .task .hit { fill: transparent; }
+  .scope .task .tblip { fill: var(--phosphor); stroke: #08110c; stroke-width: 3; }
+  .scope .task.hold .tblip { fill: var(--amber); }
+  .scope .task .tnum { fill: #08200f; font: 700 28px var(--mono); pointer-events: none; }
+  .scope .task.hold .tnum { font-size: 23px; }
+  .scope .task .task-label { fill: var(--ink-hi); font: 600 40px var(--mono); paint-order: stroke; stroke: #08110c; stroke-width: 10px; stroke-linejoin: round; }
+  .scope .task .leader { stroke: #3d5a47; stroke-width: 2; }
+  .scope .task .sel-ring { fill: none; stroke: transparent; stroke-width: 4; }
+  .scope .task.selected .sel-ring, .scope .task:focus-visible .sel-ring { stroke: #fff; }
+  .scope .task.selected .task-label { fill: #fff; }
+  .scope .more { fill: var(--ink-dim); font: 600 30px var(--mono); }
+  .radar-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--ink-dim); }
+  .radar-bar a { color: var(--ink-dim); }
+
+  /* Buttons */
+  .btn { appearance: none; border: 0; cursor: pointer; font: 600 14px var(--mono); letter-spacing: .1em; text-transform: uppercase; border-radius: 6px; padding: 12px 16px; min-height: 44px; }
+  .btn-primary { width: 100%; background: var(--phosphor); color: #06200f; }
   .btn-primary[disabled] { background: #2d4436; color: #b8cdbf; cursor: progress; }
-  .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--rail-hi); padding: 10px 12px; min-height: 40px; font-size: 12px; }
+  .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--rail-hi); padding: 8px 12px; min-height: 40px; font-size: 12px; }
+  .btn-link { background: none; border: 0; color: var(--ink-dim); text-decoration: underline; font: 13px var(--mono); padding: 10px 0; cursor: pointer; }
+
+  /* Intake */
+  .prompt { margin: 4px 0 10px; font-size: 18px; font-weight: 600; color: var(--ink-hi); }
+  textarea { width: 100%; min-height: 150px; resize: vertical; background: var(--panel); color: var(--phosphor); border: 1px solid var(--rail-hi); border-radius: 6px; padding: 12px; font: 15px/1.5 var(--mono); caret-color: var(--phosphor); margin-bottom: 10px; }
+  textarea::placeholder { color: #7f9488; }
+  textarea:focus, .add input:focus, .edit input:focus { outline: 2px solid #3f7d55; outline-offset: 1px; }
   .err { margin-top: 10px; padding: 10px 12px; border: 1px solid #6b2a24; background: #2a1513; color: #ffb4a8; border-radius: 6px; font-size: 13px; }
+  .ghosts { margin-top: 18px; opacity: .45; pointer-events: none; }
 
-  /* Tower transmission */
-  .tower { margin-top: 18px; border: 1px solid var(--rail-hi); border-radius: 6px; background: #0f1512; padding: 12px; }
-  .tower .label { margin-bottom: 8px; }
-  .tower .freq { color: var(--amber); }
-  .tower blockquote { margin: 0; color: var(--phosphor); font-size: 17.5px; line-height: 1.55; }
-  .tower-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
-  .btn-ghost[disabled] { color: var(--ink-dim); border-color: var(--rail); cursor: default; }
-  .tower-actions .status { font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; text-transform: uppercase; }
-  .tx { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; }
-  .tx::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--rail-hi); }
-  .tx.on { color: #ff7a6b; }
-  .tx.on::before { background: #ff5a4a; box-shadow: 0 0 6px #ff5a4a; animation: txpulse 1s ease-in-out infinite; }
-  @keyframes txpulse { 50% { opacity: .3; box-shadow: none; } }
-  #board.loading > :not(.tower), #board.loading .tower-actions { display: none; }
+  /* Manager */
+  .bay + .bay { margin-top: 18px; }
+  .bay-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 0 2px 6px; }
+  .bay-head h2 { margin: 0; font-size: 13px; letter-spacing: .16em; color: var(--ink-hi); }
+  .bay-head h2 small { font-weight: 400; letter-spacing: .04em; color: var(--ink-dim); text-transform: none; font-size: 12px; margin-left: 6px; }
+  .bay-head span { font-size: 12px; color: var(--ink-dim); }
+  .rack { list-style: none; margin: 0; padding: 6px; background: var(--bay); border-radius: 8px; box-shadow: inset 0 0 0 1px var(--rail); display: grid; gap: 6px; min-height: 56px; }
+  .rack.drop-target { box-shadow: inset 0 0 0 2px var(--phosphor); }
+  #hold.drop-target { box-shadow: inset 0 0 0 2px var(--amber); }
+  .empty { padding: 12px; font-size: 12px; color: var(--ink-dim); text-align: center; list-style: none; }
 
-  /* Strip bays */
-  .bay { margin-top: 20px; }
-  .bay-head { display: flex; justify-content: space-between; align-items: baseline; padding: 0 2px 6px; border-bottom: 2px solid var(--rail-hi); margin-bottom: 8px; }
-  .bay-head h2 { margin: 0; font-size: 13px; letter-spacing: .2em; color: #e8f1eb; }
-  .bay-head span { font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; }
-  .rack { background: var(--bay); border-radius: 6px; padding: 6px; display: grid; gap: 6px; box-shadow: inset 0 0 0 1px var(--rail); }
-  .empty { padding: 14px; font-size: 12px; color: var(--ink-dim); text-align: center; letter-spacing: .06em; }
-
-  .strip {
-    position: relative; display: grid;
-    grid-template-columns: 44px 1fr auto;
-    min-height: 74px;
-    background: var(--paper-seq); color: var(--paper-ink);
-    border-radius: 3px;
-    border-left: 6px solid var(--paper-seq-edge);
-    box-shadow: 0 1px 0 rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35);
-    transition: opacity .35s ease, transform .35s ease;
-  }
+  /* Strip */
+  .strip { position: relative; display: grid; grid-template-columns: 34px 30px 1fr 52px; align-items: center; min-height: 58px; background: var(--paper-seq); color: var(--paper-ink); border-radius: 4px; border-left: 5px solid var(--paper-seq-edge); box-shadow: 0 1px 0 rgba(0,0,0,.45); }
   .strip.hold { background: var(--paper-hold); border-left-color: var(--paper-hold-edge); }
-  .strip > div { padding: 8px; }
-  .strip .no { border-right: 1px solid var(--paper-rule); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
-  .strip .no b { font-size: 20px; font-weight: 700; line-height: 1; }
-  .strip .no small { font-size: 9px; letter-spacing: .1em; color: var(--paper-ink-dim); }
-  .strip .main { min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
-  .strip .cs { font-size: 17px; font-weight: 700; letter-spacing: .05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .strip .task { font-size: 13px; color: var(--paper-ink-dim); overflow-wrap: anywhere; }
-  .strip .meta { display: flex; gap: 10px; font-size: 11px; letter-spacing: .06em; color: var(--paper-ink-dim); text-transform: uppercase; flex-wrap: wrap; }
-  .strip .meta .note { color: #7a5a00; }
-  .strip .act { border-left: 1px solid var(--paper-rule); display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 4px; padding: 6px; }
-  .strip .act .row { display: flex; gap: 4px; }
-  .strip .act .row > * { flex: 1; }
-  .land {
-    appearance: none; cursor: pointer; border: 1.5px solid var(--paper-ink); background: transparent; color: var(--paper-ink);
-    font: 700 11px var(--mono); letter-spacing: .12em; padding: 0 10px; height: 40px; border-radius: 4px; text-transform: uppercase;
-  }
-  .land:active { background: var(--paper-ink); color: var(--paper-seq); }
-  .land.sm { height: 30px; font-size: 10px; padding: 0 8px; border-width: 1px; }
-  .strip.landed .land.sm:first-child { height: auto; min-height: 30px; padding: 4px 8px; max-width: 110px; line-height: 1.2; }
-  .land.del { font-size: 13px; letter-spacing: 0; }
-  .strip.cleared { box-shadow: 0 0 0 2px var(--phosphor), 0 2px 10px rgba(141,240,168,.25); }
-  .strip.cleared .no small { color: #1d6b34; font-weight: 700; }
-  .strip.promoted .no small { color: #1d6b34; }
+  .strip.landed { background: #b8c4bb; border-left-color: #8b9a8f; }
+  .strip.first { box-shadow: 0 0 0 2px var(--phosphor); }
+  .strip.selected { outline: 3px solid #fff; outline-offset: 2px; }
+  .strip.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { 0% { outline: 3px solid #fff; outline-offset: 6px; } 100% { outline-offset: 2px; } }
+  .handle { appearance: none; align-self: stretch; border: 0; background: transparent; color: rgba(28,38,31,.45); cursor: grab; font-size: 18px; line-height: 1; touch-action: none; padding: 0; }
+  .handle:active { cursor: grabbing; }
+  .num { font-weight: 700; font-size: 14px; text-align: center; color: var(--paper-ink-dim); }
+  .main { min-width: 0; padding: 8px 4px; cursor: pointer; }
+  .title { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }
+  .strip.landed .title { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--paper-ink-dim); }
+  .meta { display: flex; gap: 8px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+  .time { appearance: none; border: 1px solid var(--paper-rule); background: rgba(255,255,255,.35); color: var(--paper-ink); border-radius: 12px; font: 600 12px var(--mono); padding: 2px 9px; min-height: 26px; cursor: pointer; }
+  .note { font-size: 11px; color: #6a4f00; letter-spacing: .04em; text-transform: uppercase; }
+  .chk { appearance: none; justify-self: center; width: 38px; height: 38px; border-radius: 50%; border: 2px solid var(--paper-ink); background: transparent; color: var(--paper-ink); font-size: 18px; font-weight: 700; cursor: pointer; display: grid; place-items: center; }
+  .chk::after { content: "✓"; opacity: .18; }
+  .chk:hover::after { opacity: .5; }
+  .strip.landed .chk { background: var(--paper-ink); color: #b8c4bb; }
+  .strip.landed .chk::after { opacity: 1; }
+  .strip.dragging { opacity: .95; box-shadow: 0 10px 28px rgba(0,0,0,.6); z-index: 20; pointer-events: none; }
+  .placeholder { min-height: 58px; border: 2px dashed var(--rail-hi); border-radius: 4px; list-style: none; }
 
-  .strip.landed { opacity: .8; }
-  .strip.landed .cs, .strip.landed .task { text-decoration: line-through; text-decoration-thickness: 2px; }
-  .strip.landed.leaving .act { visibility: hidden; }
-  .strip.landed::after {
-    content: "LANDED"; position: absolute; right: 120px; top: 50%; transform: translateY(-50%) rotate(-8deg); pointer-events: none;
-    border: 2px solid var(--stamp); color: var(--stamp); font: 700 13px var(--mono); letter-spacing: .18em; padding: 2px 6px; border-radius: 3px;
-  }
-  .strip.leaving { opacity: 0; transform: translateX(24px); }
+  /* Inline editor */
+  .edit { grid-column: 1 / -1; display: grid; gap: 10px; padding: 4px 10px 12px 10px; border-top: 1px solid var(--paper-rule); }
+  .edit input[type=text] { width: 100%; font: 600 15px var(--mono); padding: 9px 10px; border-radius: 4px; border: 1px solid var(--paper-rule); background: #fff; color: var(--paper-ink); }
+  .stepper { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .stepper b { min-width: 52px; text-align: center; font-size: 16px; }
+  .pill { appearance: none; border: 1px solid var(--paper-ink); background: transparent; color: var(--paper-ink); border-radius: 14px; font: 600 12px var(--mono); padding: 0 10px; min-height: 32px; cursor: pointer; }
+  .pill.round { width: 36px; padding: 0; font-size: 18px; }
+  .pill.on { background: var(--paper-ink); color: var(--paper-seq); }
+  .edit .row { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .pill.danger { border-color: #9c1f18; color: #9c1f18; }
 
-  details.landed-bay { margin-top: 20px; }
-  details.landed-bay summary { cursor: pointer; font-size: 12px; letter-spacing: .16em; color: var(--ink-dim); padding: 6px 2px; list-style: none; }
+  /* Add row */
+  .add { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; margin-top: 8px; }
+  .add input { min-width: 0; background: var(--panel); color: var(--ink-hi); border: 1px solid var(--rail-hi); border-radius: 6px; padding: 10px 12px; font: 15px var(--mono); }
+  .add input::placeholder { color: #7f9488; }
+  .add select { background: var(--panel); color: var(--ink); border: 1px solid var(--rail-hi); border-radius: 6px; font: 14px var(--mono); padding: 0 8px; }
+  .add .btn { min-height: 42px; padding: 0 14px; }
+
+  details.landed-bay { margin-top: 18px; }
+  details.landed-bay summary { cursor: pointer; font-size: 13px; letter-spacing: .16em; color: var(--ink-dim); padding: 6px 2px; list-style: none; }
   details.landed-bay summary::-webkit-details-marker { display: none; }
   details.landed-bay summary::before { content: "▸ "; }
   details.landed-bay[open] summary::before { content: "▾ "; }
+  .board-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
+  .foot { margin-top: 26px; font-size: 12px; color: var(--ink-dim); text-align: center; }
+  .foot a { color: var(--ink-dim); }
 
-  .board-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 22px; }
-  .board-actions .stamp { font-size: 11px; color: var(--ink-dim); letter-spacing: .06em; }
-
-  .scanning { display: inline-block; width: 1ch; animation: blink 1s steps(2) infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-
-  .boot { margin-top: 28px; font-size: 12px; letter-spacing: .14em; color: var(--ink-dim); text-transform: uppercase; }
-  .toast {
-    position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10;
-    display: flex; align-items: center; gap: 14px;
-    background: #1b231f; color: var(--ink); border: 1px solid var(--rail-hi); border-radius: 6px; padding: 8px 8px 8px 14px;
-    font-size: 13px; letter-spacing: .04em; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.5);
-  }
+  .toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 14px; background: #1b231f; color: var(--ink); border: 1px solid var(--rail-hi); border-radius: 6px; padding: 8px 8px 8px 14px; font-size: 13px; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
   .toast.error { background: #2a1513; color: #ffb4a8; border-color: #6b2a24; padding: 10px 14px; }
-  .toast button { appearance: none; border: 1px solid var(--phosphor); background: transparent; color: var(--phosphor); font: 700 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; border-radius: 4px; padding: 0 12px; height: 36px; cursor: pointer; }
-  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink); min-height: 40px; }
-  .switch input { appearance: none; width: 36px; height: 20px; border-radius: 10px; background: var(--rail-hi); position: relative; margin: 0; cursor: pointer; transition: background .2s; }
-  .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform .2s; }
-  .switch input:checked { background: #2f7a49; }
-  .switch input:checked::after { transform: translateX(16px); background: var(--phosphor); }
-  .switch input:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
-  /* Radar */
-  .radar { margin-top: 14px; position: relative; }
-  .scope { display: block; width: 100%; max-width: 520px; margin: 0 auto; aspect-ratio: 1; touch-action: manipulation; }
-  .scope-bg { fill: #07110b; stroke: var(--rail-hi); stroke-width: 3; }
-  .scope .ring { fill: none; stroke: #1d3326; stroke-width: 2; }
-  .scope .ring-label { fill: #6b8f77; font: 26px var(--mono); }
-  .scope .tick { stroke: #2c4a37; stroke-width: 2; }
-  .scope .runway { stroke: #a3b2a8; stroke-linecap: butt; }
-  .scope .centreline { stroke: #2f5a3d; stroke-width: 2; stroke-dasharray: 10 10; }
-  .scope .rwy-label { fill: #a3b2a8; font: 600 26px var(--mono); }
-  .scope .sweep { stroke: rgba(141,240,168,.18); stroke-width: 3; }
-  .scope .badge { fill: var(--phosphor); font: 600 28px var(--mono); letter-spacing: 2px; }
-  .scope .badge.sim { fill: var(--amber); }
-  .scope .range-label { fill: #a3b2a8; font: 600 28px var(--mono); }
-  .scope .ac .blip { fill: none; stroke: #6f9a7c; stroke-width: 2.5; }
-  .scope .ac .vec { stroke: #4f7a5d; stroke-width: 2; }
-  .scope .ac .ac-label { fill: #8fb39b; font: 26px var(--mono); }
-  .scope .ac.sim .blip { stroke: #b39443; }
-  .scope .ac.sim .ac-label { fill: #b39443; }
-  .scope .ac.paired .blip { stroke: #ff7a6b; stroke-width: 4; fill: rgba(255,90,74,.25); }
-  .scope .ac.paired .ac-label { fill: #ffb4a8; font-weight: 700; }
-  .scope .ac.paired .vec { stroke: #ff7a6b; }
-  .scope .task { cursor: pointer; outline: none; }
-  .scope .task .hit { fill: transparent; }
-  .scope .task .tblip { fill: var(--phosphor); stroke: #06200f; stroke-width: 2; }
-  .scope .task.hold .tblip { fill: var(--amber); }
-  .scope .task .task-label { fill: #e8f1eb; font: 700 30px var(--mono); paint-order: stroke; stroke: #07110b; stroke-width: 5px; }
-  .scope .task .sel-ring { fill: none; stroke: transparent; stroke-width: 3; }
-  .scope .task.selected .sel-ring, .scope .task:focus-visible .sel-ring { stroke: #fff; }
-  .scope .task.first .tblip { filter: drop-shadow(0 0 6px rgba(141,240,168,.9)); }
-  .radar-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--ink-dim); letter-spacing: .04em; }
-  .radar-bar a { color: var(--ink-dim); }
-  .radar-bar .btn-ghost { min-height: 36px; padding: 6px 10px; font-size: 11px; }
-  .strip.selected { outline: 3px solid #fff; outline-offset: 2px; }
-  .strip .race { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: #1d4f2d; }
-  .strip .race [data-countdown] { font-variant-numeric: tabular-nums; font-size: 14px; }
-  .strip .race.won { color: #1d6b34; }
-  .strip .race.lost { color: var(--stamp); }
-  .strip .race .simtag { background: #7a5a00; color: #fff3c4; padding: 0 4px; border-radius: 2px; font-size: 10px; }
-  .strip.racing { box-shadow: 0 0 0 2px #ff7a6b, 0 2px 10px rgba(255,90,74,.25); }
-  .strip.beaten { box-shadow: 0 0 0 2px var(--stamp); }
-  .strip .main { cursor: pointer; }
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 11px; letter-spacing: .06em; color: var(--ink-dim); text-transform: uppercase; }
-  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
-  .legend .l-seq i { background: var(--paper-seq); }
-  .legend .l-hold i { background: var(--paper-hold); }
-  .legend .l-landed i { background: #8b9a8f; }
-  .prompt { margin: 18px 0 10px; font-size: 18px; font-weight: 600; color: #e8f1eb; letter-spacing: .02em; }
-  .ghosts { margin-top: 16px; }
-  .ghosts .rack { opacity: .45; }
-  .ghosts .strip { pointer-events: none; }
-  .help { appearance: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--rail-hi); background: transparent; color: var(--ink); font: 700 16px var(--mono); cursor: pointer; margin-left: 10px; }
-  .help:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
-  .head-right { display: flex; align-items: center; }
-  dialog.guide { max-width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); border: 1px solid var(--rail-hi); border-radius: 8px; background: #0f1512; color: var(--ink); padding: 18px 18px 14px; font: 14px/1.5 var(--mono); }
+  .toast button { appearance: none; border: 1px solid var(--phosphor); background: transparent; color: var(--phosphor); font: 700 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; border-radius: 4px; padding: 0 12px; height: 36px; cursor: pointer; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .boot { font-size: 12px; letter-spacing: .14em; color: var(--ink-dim); text-transform: uppercase; padding: 10px 2px; }
+
+  dialog.guide { max-width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); border: 1px solid var(--rail-hi); border-radius: 8px; background: var(--panel); color: var(--ink); padding: 18px; font: 14px/1.5 var(--mono); }
   dialog.guide::backdrop { background: rgba(0,0,0,.7); }
-  dialog.guide h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: .14em; color: #e8f1eb; }
-  dialog.guide ol { margin: 0; padding-left: 20px; }
+  dialog.guide h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: .14em; color: var(--ink-hi); }
+  dialog.guide ul { margin: 0; padding-left: 18px; }
   dialog.guide li { margin: 6px 0; }
   dialog.guide b { color: var(--phosphor); }
   dialog.guide .row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; font-size: 12px; }
   dialog.guide a { color: var(--ink-dim); }
-  .foot { margin-top: 28px; font-size: 12px; color: var(--ink-dim); text-align: center; }
-  .foot a { color: var(--ink-dim); }
   .hidden { display: none !important; }
-  @media (prefers-reduced-motion: reduce) { .strip, .switch input, .switch input::after { transition: none; } .scanning, .tx.on::before { animation: none; } }
-  @media (min-width: 900px) { .wrap { max-width: 600px; } }
-  @media (min-width: 480px) { .strip { grid-template-columns: 52px 1fr auto; } .strip .cs { font-size: 18px; } }
+  @media (prefers-reduced-motion: reduce) { .strip.flash { animation: none; } }
 </style>
 </head>
 <body>
@@ -243,81 +188,80 @@
       <h1>Cleared To Do</h1>
       <p>your tasks, cleared to land</p>
     </div>
-    <div class="head-right">
-      <div class="clock"><b id="local-clock" aria-label="Local time">--:--</b><span id="zulu" aria-label="UTC time">--:--Z</span> · TWR</div>
-      <button class="help" id="help" type="button" aria-label="How it works" aria-haspopup="dialog">?</button>
-    </div>
+    <button class="help" id="help" type="button" aria-label="How it works" aria-haspopup="dialog">?</button>
   </header>
 
-  <section class="radar" aria-label="Radar">
-    <div id="scope"></div>
-    <div class="radar-bar">
-      <span id="radar-credit">Connecting to traffic feed…</span>
-      <button class="btn btn-ghost" id="range" type="button" aria-label="Change radar range">Range</button>
-    </div>
-    <div class="legend" aria-label="Legend"><span class="l-seq"><i></i>Sequence = do now</span><span class="l-hold"><i></i>Holding = not today</span><span class="l-landed"><i></i>Landed = done</span></div>
-  </section>
-
-  <div id="boot" class="boot">Contacting tower<span class="scanning">_</span></div>
-
-  <section id="intake" class="intake hidden">
-    <p class="prompt">Tell the tower what's on your plate.</p>
-    <div class="label"><label for="dump">Brain dump · all traffic</label><span id="count">0/2000</span></div>
-    <textarea id="dump" maxlength="2000" placeholder="laundry, call mum back, taxes at some point, reply to Sam's email before 5, maybe learn spanish, buy milk"></textarea>
-    <button id="request" class="btn btn-primary" type="button">Request clearance</button>
-    <div id="error" class="err hidden" role="alert"></div>
-    <div id="ghosts" class="ghosts hidden" aria-hidden="true">
-      <div class="bay-head"><h2>EXAMPLE</h2><span>disappears when you type</span></div>
-      <div class="rack">
-        <article class="strip seq cleared"><div class="no"><b>01</b><small>CLRD</small></div><div class="main"><div class="cs">INVOICE 42</div><div class="task">Send the March invoice</div><div class="meta"><span>EST 0:15</span></div></div><div class="act"><span class="land">Start</span></div></article>
-        <article class="strip seq"><div class="no"><b>02</b><small>SEQ</small></div><div class="main"><div class="cs">MILK 27</div><div class="task">Buy milk on the way home</div><div class="meta"><span>EST 0:10</span></div></div><div class="act"><span class="land">Landed</span></div></article>
-        <article class="strip hold"><div class="no"><b>H1</b><small>HOLD</small></div><div class="main"><div class="cs">SPANISH 63</div><div class="task">Learn Spanish</div><div class="meta"><span>EST 1:00</span><span class="note">expect further clearance</span></div></div><div class="act"><span class="land">Clear</span></div></article>
+  <div class="app">
+    <section class="radar" aria-label="Radar">
+      <div id="scope"></div>
+      <div class="radar-bar">
+        <span id="radar-credit">Connecting to traffic…</span>
+        <button class="btn btn-ghost" id="range" type="button" aria-label="Change radar range">Zoom</button>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="board" class="hidden" aria-live="polite">
-    <div class="tower">
-      <div class="label"><span><span class="tx" id="tx" aria-hidden="true">TX</span>Tower transmission</span><span class="freq">118.300</span></div>
-      <blockquote id="transmission"></blockquote>
-      <div class="tower-actions" id="tower-actions">
-        <label class="switch"><input type="checkbox" id="readback" role="switch"> Read back</label>
-        <span class="status" id="voice-status"></span>
-      </div>
-    </div>
+    <main>
+      <div id="boot" class="boot">Loading…</div>
 
-    <div class="bay">
-      <div class="bay-head"><h2>SEQUENCE</h2><span id="seq-meta"></span></div>
-      <div class="rack" id="seq"></div>
-    </div>
+      <section id="intake" class="hidden">
+        <p class="prompt">Tell the tower what's on your plate.</p>
+        <label class="sr" for="dump">Everything on your mind</label>
+        <textarea id="dump" maxlength="2000" placeholder="laundry, call mum back, taxes at some point, reply to Sam's email before 5, maybe learn spanish, buy milk"></textarea>
+        <button id="request" class="btn btn-primary" type="button">Sort my list</button>
+        <button id="start-empty" class="btn-link" type="button">or add tasks one by one</button>
+        <div id="error" class="err hidden" role="alert"></div>
+        <div id="ghosts" class="ghosts hidden" aria-hidden="true">
+          <div class="bay-head"><h2>EXAMPLE</h2><span>disappears when you type</span></div>
+          <ul class="rack">
+            <li class="strip seq first"><span class="handle">⋮⋮</span><span class="num">1</span><div class="main"><div class="title">Send the March invoice</div><div class="meta"><span class="time">0:15</span></div></div><span class="chk"></span></li>
+            <li class="strip seq"><span class="handle">⋮⋮</span><span class="num">2</span><div class="main"><div class="title">Buy milk on the way home</div><div class="meta"><span class="time">0:10</span></div></div><span class="chk"></span></li>
+            <li class="strip hold"><span class="handle">⋮⋮</span><span class="num">H1</span><div class="main"><div class="title">Learn Spanish</div><div class="meta"><span class="time">1:00</span><span class="note">not today</span></div></div><span class="chk"></span></li>
+          </ul>
+        </div>
+      </section>
 
-    <div class="bay">
-      <div class="bay-head"><h2>HOLDING</h2><span id="hold-meta"></span></div>
-      <div class="rack" id="hold"></div>
-    </div>
+      <section id="board" class="hidden">
+        <div class="bay">
+          <div class="bay-head"><h2>SEQUENCE<small>do now</small></h2><span id="seq-meta"></span></div>
+          <ul class="rack" id="seq" aria-label="Sequence: do now"></ul>
+          <form class="add" id="add" autocomplete="off">
+            <label class="sr" for="add-text">New task</label>
+            <input id="add-text" type="text" maxlength="80" placeholder="Add a task…">
+            <label class="sr" for="add-time">Time</label>
+            <select id="add-time">
+              <option value="5">0:05</option><option value="10">0:10</option><option value="15" selected>0:15</option><option value="30">0:30</option><option value="45">0:45</option><option value="60">1:00</option><option value="90">1:30</option><option value="120">2:00</option>
+            </select>
+            <button class="btn btn-primary" type="submit">Add</button>
+          </form>
+        </div>
 
-    <details class="landed-bay" id="landed-bay">
-      <summary id="landed-summary">LANDED</summary>
-      <div class="rack" id="landed"></div>
-    </details>
+        <div class="bay">
+          <div class="bay-head"><h2>HOLDING<small>not today</small></h2><span id="hold-meta"></span></div>
+          <ul class="rack" id="hold" aria-label="Holding: not today"></ul>
+        </div>
 
-    <div class="board-actions">
-      <span class="stamp" id="stamp"></span>
-      <button class="btn btn-ghost" id="new-board" type="button">New board</button>
-    </div>
-  </section>
-  <footer class="foot"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#delete">Delete my data</a></footer>
+        <details class="landed-bay" id="landed-bay">
+          <summary id="landed-summary">LANDED · done</summary>
+          <ul class="rack" id="landed" aria-label="Landed: done"></ul>
+        </details>
+
+        <div class="board-actions"><button class="btn btn-ghost" id="new-board" type="button">Start a new list</button></div>
+      </section>
+      <footer class="foot"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#delete">Delete my data</a></footer>
+    </main>
+  </div>
   <div id="toast" class="toast hidden" role="status"></div>
+  <div id="announce" class="sr" aria-live="polite"></div>
+
   <dialog class="guide" id="guide" aria-labelledby="guide-title">
     <h2 id="guide-title">HOW IT WORKS</h2>
-    <ol>
-      <li><b>Tell the tower</b> everything on your plate, messy is fine. Tap Request clearance.</li>
-      <li>The tower files each task as a strip. <b>Sequence</b> = do now, in order. <b>Holding</b> = not today. <b>Landed</b> = done.</li>
-      <li>On a strip: <b>Landed</b> when it's done (5 s to undo), <b>Hold</b> or <b>Clear</b> to move it, <b>✕</b> to delete it.</li>
-      <li><b>Start</b> the cleared task to race a real plane landing at Dublin right now. Finish before it touches down. If it lands first: go around (race the next one) or call it landed.</li>
-      <li>The <b>radar</b> shows real traffic around Dublin (dim) and your tasks (bright). <b>SIM</b> means simulated traffic.</li>
-      <li><b>Read back</b> reads the tower's call aloud with your device's voice. Off by default.</li>
-    </ol>
+    <ul>
+      <li><b>Tell the tower</b> what's on your plate, messy is fine. It sorts everything into a list. Or add tasks one by one.</li>
+      <li><b>Sequence</b> is what you're doing now, in order. <b>Holding</b> is not today. <b>Landed</b> is done.</li>
+      <li><b>Drag</b> a task by its ⋮⋮ handle to reorder it, or drop it into Holding or back into the Sequence.</li>
+      <li><b>Tap</b> a task to rename it, change its time, or delete it. Tap <b>✓</b> when it's done.</li>
+      <li>The <b>radar</b> shows your list as traffic: numbered blips on the approach and in the hold. Tap one to jump to it. Real aircraft around Dublin drift by in the background.</li>
+    </ul>
     <div class="row"><a href="/privacy.html">Privacy &amp; delete my data</a><button class="btn btn-ghost" id="guide-close" type="button">Got it</button></div>
   </dialog>
 </div>

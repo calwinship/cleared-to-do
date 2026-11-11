@@ -1,63 +1,45 @@
-// Cleared To Do: client. One board per device; strips are tasks, the radar shows them as traffic.
+// Cleared To Do: a task list you can see. Sequence = do now, Holding = not today, Landed = done.
+// The radar draws the list as numbered traffic; real aircraft drift by in the background.
 import { createRadar } from './radar.js';
-import { startRace, tickRace, goAround, simArrival, mmss } from './race.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
-  intake: $('intake'), dump: $('dump'), count: $('count'), request: $('request'), error: $('error'),
-  board: $('board'), transmission: $('transmission'), tx: $('tx'), readback: $('readback'), voiceStatus: $('voice-status'),
-  seq: $('seq'), hold: $('hold'), landed: $('landed'), landedBay: $('landed-bay'), landedSummary: $('landed-summary'),
-  seqMeta: $('seq-meta'), holdMeta: $('hold-meta'), stamp: $('stamp'), newBoard: $('new-board'), toast: $('toast'),
-  localClock: $('local-clock'), zulu: $('zulu'),
+  boot: $('boot'), intake: $('intake'), dump: $('dump'), request: $('request'), startEmpty: $('start-empty'), error: $('error'),
+  ghosts: $('ghosts'), board: $('board'), seq: $('seq'), hold: $('hold'), landed: $('landed'), landedBay: $('landed-bay'),
+  landedSummary: $('landed-summary'), seqMeta: $('seq-meta'), holdMeta: $('hold-meta'), add: $('add'), addText: $('add-text'),
+  addTime: $('add-time'), newBoard: $('new-board'), toast: $('toast'), announce: $('announce'),
 };
 
 let board = null;
+let editingId = null;
+let selectedId = null;
 
-// --- storage helpers (private windows may throw) ---
+// --- storage (private windows may throw) ---
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
-  del: (k) => { try { localStorage.removeItem(k); } catch {} },
 };
-
-// Anonymous device ID: no login, boards are keyed by this.
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let OWNER = store.get('ctd_owner');
 if (!UUID.test(OWNER || '')) { OWNER = crypto.randomUUID(); store.set('ctd_owner', OWNER); }
 
-// --- time formatting ---
-const pad = (n) => String(n).padStart(2, '0');
-export const hmm = (mins) => `${Math.floor(mins / 60)}:${pad(Math.round(mins % 60))}`; // durations: 0:30, 1:05
-export const hhmm = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`; // local clock
-const zulu = (d) => `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}Z`;
-
-function tick() {
-  const d = new Date();
-  els.localClock.textContent = hhmm(d);
-  els.zulu.textContent = zulu(d);
-}
-tick();
-setInterval(tick, 5000);
-
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hmm = (mins) => `${Math.floor(mins / 60)}:${String(Math.round(mins % 60)).padStart(2, '0')}`;
+const say = (msg) => { els.announce.textContent = msg; };
 const showError = (msg) => { els.error.textContent = msg; els.error.classList.toggle('hidden', !msg); };
 
-els.dump.addEventListener('input', () => {
-  els.count.textContent = `${els.dump.value.length}/2000`;
-  // first input retires the example strips for good
-  if (els.dump.value.trim() && !store.get('ctd_typed')) { store.set('ctd_typed', '1'); $('ghosts').classList.add('hidden'); }
-});
+// one-word radar label, same rule as the server
+// Filler and time words never make a good label; the last remaining word usually names the thing.
+const STOP = new Set(['THE', 'AND', 'FOR', 'WITH', 'FROM', 'ABOUT', 'INTO', 'BACK', 'SOME', 'MAYBE', 'CALL', 'BUY', 'GET', 'DO', 'TO', 'A', 'AN', 'MY', 'UP', 'OUT', 'OFF', 'BEFORE', 'AFTER', 'TODAY', 'TONIGHT', 'TOMORROW', 'SOMEDAY', 'LATER', 'POINT', 'WEEK', 'MONTH', 'NEXT', 'THIS', 'THAT', 'SOON', 'EVENTUALLY', 'PLEASE', 'AT', 'ON', 'IN', 'OF', 'BY']);
+function shortLabel(task) {
+  const words = String(task).toUpperCase().replace(/[^A-Z ]/g, ' ').split(/\s+/).filter((w) => w.length > 1);
+  const keep = words.filter((w) => !STOP.has(w) && w.length >= 3);
+  return (keep.at(-1) || words[0] || 'TASK').slice(0, 10);
+}
+const labelOf = (f) => (f.callsign ? String(f.callsign).split(' ')[0] : shortLabel(f.task));
 
-// --- first visit: example strips + guide ---
-function showGhosts() { $('ghosts').classList.toggle('hidden', !!store.get('ctd_typed') || !!els.dump.value.trim()); }
-const guide = $('guide');
-$('help').addEventListener('click', () => guide.showModal());
-$('guide-close').addEventListener('click', () => guide.close());
-guide.addEventListener('click', (e) => { if (e.target === guide) guide.close(); }); // tap the backdrop to close
-
-// --- toast (with optional Undo) ---
-let toastTimer = null;
-let toastUndo = null;
+// --- toast with optional Undo ---
+let toastTimer = null, toastUndo = null;
 function toast(msg, { undo = null, error = false, ms = 5000 } = {}) {
   clearTimeout(toastTimer);
   toastUndo = undo;
@@ -65,11 +47,7 @@ function toast(msg, { undo = null, error = false, ms = 5000 } = {}) {
   els.toast.innerHTML = `<span>${esc(msg)}</span>${undo ? '<button type="button" id="undo">Undo</button>' : ''}`;
   toastTimer = setTimeout(hideToast, ms);
 }
-function hideToast() {
-  clearTimeout(toastTimer);
-  toastUndo = null;
-  els.toast.classList.add('hidden');
-}
+function hideToast() { clearTimeout(toastTimer); toastUndo = null; els.toast.classList.add('hidden'); }
 els.toast.addEventListener('click', (e) => {
   if (!e.target.closest('#undo') || !toastUndo) return;
   const fn = toastUndo;
@@ -77,361 +55,345 @@ els.toast.addEventListener('click', (e) => {
   fn();
 });
 
-// --- board model helpers ---
-const visible = () => board.flights.filter((f) => !f._pendingDelete);
+// --- model helpers ---
+const live = () => board.flights.filter((f) => !f._pendingDelete);
 const lanes = () => {
-  const v = visible();
-  return {
-    seq: v.filter((f) => !f.landed && f.lane === 'seq'),
-    hold: v.filter((f) => !f.landed && f.lane === 'hold'),
-    landed: v.filter((f) => f.landed),
-  };
+  const v = live();
+  return { seq: v.filter((f) => !f.landed && f.lane === 'seq'), hold: v.filter((f) => !f.landed && f.lane === 'hold'), landed: v.filter((f) => f.landed) };
 };
 const find = (id) => board?.flights.find((f) => f.id === id);
 const snapshot = () => board.flights.map((f) => ({ ...f }));
-function moveToEnd(f) {
-  board.flights.splice(board.flights.indexOf(f), 1);
-  board.flights.push(f);
+function reorder(seqIds, holdIds) {
+  const byId = new Map(board.flights.map((f) => [f.id, f]));
+  const placed = new Set([...seqIds, ...holdIds]);
+  board.flights = [
+    ...seqIds.map((id) => Object.assign(byId.get(id), { lane: 'seq' })),
+    ...holdIds.map((id) => Object.assign(byId.get(id), { lane: 'hold' })),
+    ...board.flights.filter((f) => !placed.has(f.id)),
+  ];
 }
 
 // --- rendering ---
-function stripHTML(f, pos, opts = {}) {
-  const lane = f.lane === 'hold' ? 'hold' : 'seq';
-  const classes = ['strip', lane];
-  if (f.landed) classes.push('landed');
-  if (opts.cleared) classes.push('cleared');
-  if (f.promoted) classes.push('promoted');
-  let no, sub;
-  if (f.landed) { no = '✓'; sub = 'DOWN'; }
-  else if (lane === 'seq') { no = pad(pos); sub = opts.cleared ? 'CLRD' : (f.promoted ? 'PROM' : 'SEQ'); }
-  else { no = 'H' + pos; sub = 'HOLD'; }
-  const note = lane === 'hold' && f.note && !f.landed ? `<span class="note">${esc(f.note)}</span>` : '';
-  const cs = esc(f.callsign);
-  const id = esc(f.id);
-  const race = f.race && !f.landed && lane === 'seq' ? f.race : null;
-  const raceLine = raceHTML(f);
-  const del = `<button class="land sm del" type="button" data-act="delete" data-id="${id}" aria-label="Delete ${cs}" title="Delete">✕</button>`;
-  let act;
-  if (f.landed) {
-    act = `<button class="land sm" type="button" data-act="return" data-id="${id}" aria-label="Return ${cs} to sequence">Return to sequence</button><div class="row">${del}</div>`;
-  } else if (race?.status === 'aircraft-landed') {
-    act = `<button class="land" type="button" data-act="go-around" data-id="${id}" aria-label="Go around: race the next arrival">Go around</button>` +
-      `<div class="row"><button class="land sm" type="button" data-act="land" data-id="${id}" aria-label="Mark ${cs} landed">Landed</button></div>`;
-  } else if (lane === 'seq' && opts.cleared && race?.status !== 'racing') {
-    act = `<button class="land" type="button" data-act="start" data-id="${id}" aria-label="Start ${cs}: race a real arrival">Start</button>` +
-      `<div class="row"><button class="land sm" type="button" data-act="land" data-id="${id}" aria-label="Mark ${cs} landed">Landed</button><button class="land sm" type="button" data-act="hold" data-id="${id}" aria-label="Send ${cs} to holding">Hold</button>${del}</div>`;
-  } else if (lane === 'seq') {
-    act = `<button class="land" type="button" data-act="land" data-id="${id}" aria-label="Mark ${cs} landed">Landed</button>` +
-      `<div class="row"><button class="land sm" type="button" data-act="hold" data-id="${id}" aria-label="Send ${cs} to holding">Hold</button>${del}</div>`;
-  } else {
-    act = `<button class="land" type="button" data-act="clear" data-id="${id}" aria-label="Clear ${cs} into the sequence">Clear</button><div class="row">${del}</div>`;
-  }
-  if (race?.status === 'racing') classes.push('racing');
-  if (race?.status === 'aircraft-landed') classes.push('beaten');
-  return `<article class="${classes.join(' ')}" data-id="${id}">
-    <div class="no"><b>${esc(no)}</b><small>${sub}</small></div>
-    <div class="main">
-      <div class="cs">${cs}</div>
-      <div class="task">${esc(f.task)}</div>
-      <div class="meta"><span>EST ${hmm(f.minutes)}</span>${note}</div>
-      ${raceLine}
+const PRESETS = [5, 10, 15, 30, 45, 60, 90, 120];
+function stripHTML(f, num, { first = false } = {}) {
+  const lane = f.landed ? 'landed' : f.lane === 'hold' ? 'hold' : 'seq';
+  const id = esc(f.id), title = esc(f.task);
+  const editing = f.id === editingId && !f.landed;
+  const cls = ['strip', lane, first && 'first', f.id === selectedId && 'selected', editing && 'editing'].filter(Boolean).join(' ');
+  const handle = f.landed ? '<span></span>' : `<button class="handle" type="button" data-id="${id}" aria-label="Move: ${title}. Drag, or use the up and down arrow keys">⋮⋮</button>`;
+  const edit = !editing ? '' : `
+    <div class="edit">
+      <label class="sr" for="name-${id}">Task name</label>
+      <input type="text" id="name-${id}" data-name="${id}" maxlength="80" value="${title}">
+      <div class="stepper" role="group" aria-label="Time">
+        <button class="pill round" type="button" data-act="minus" data-id="${id}" aria-label="Less time">−</button>
+        <b>${hmm(f.minutes)}</b>
+        <button class="pill round" type="button" data-act="plus" data-id="${id}" aria-label="More time">+</button>
+        ${PRESETS.map((m) => `<button class="pill${m === f.minutes ? ' on' : ''}" type="button" data-act="preset" data-min="${m}" data-id="${id}">${hmm(m)}</button>`).join('')}
+      </div>
+      <div class="row">
+        <span>
+          <button class="pill" type="button" data-act="${lane === 'hold' ? 'to-seq' : 'to-hold'}" data-id="${id}">${lane === 'hold' ? 'Move to Sequence' : 'Move to Holding'}</button>
+          <button class="pill danger" type="button" data-act="delete" data-id="${id}">Delete</button>
+        </span>
+        <button class="pill on" type="button" data-act="close" data-id="${id}">Done</button>
+      </div>
+    </div>`;
+  return `<li class="${cls}" data-id="${id}">
+    ${handle}
+    <span class="num" aria-hidden="true">${f.landed ? '' : num}</span>
+    <div class="main" data-act="edit" data-id="${id}">
+      <div class="title">${title}</div>
+      <div class="meta"><button class="time" type="button" data-act="edit" data-id="${id}" aria-label="Time ${hmm(f.minutes)}. Change">${hmm(f.minutes)}</button></div>
     </div>
-    <div class="act">${act}</div>
-  </article>`;
+    <button class="chk" type="button" data-act="toggle" data-id="${id}" aria-label="${f.landed ? `Not done: ${title}` : `Done: ${title}`}" aria-pressed="${!!f.landed}"></button>
+    ${edit}
+  </li>`;
 }
 
-export function render() {
-  $('boot')?.remove();
+function render() {
+  els.boot.classList.add('hidden');
   if (!board) {
     els.board.classList.add('hidden');
     els.intake.classList.remove('hidden');
+    els.ghosts.classList.toggle('hidden', !!store.get('ctd_typed') || !!els.dump.value.trim());
     radar.setTasks({ seq: [], hold: [] });
-    showGhosts();
     return;
   }
   els.intake.classList.add('hidden');
   els.board.classList.remove('hidden');
-  els.transmission.textContent = board.transmission;
-
   const { seq, hold, landed } = lanes();
-  els.seq.innerHTML = seq.length
-    ? seq.map((f, i) => stripHTML(f, i + 1, { cleared: i === 0 })).join('')
-    : `<div class="empty">${hold.length ? 'Runway clear.' : 'All traffic landed. Runway clear. Good day.'}</div>`;
-  els.hold.innerHTML = hold.length
-    ? hold.map((f, i) => stripHTML(f, i + 1)).join('')
-    : '<div class="empty">Holding stack empty.</div>';
-  els.landed.innerHTML = landed.map((f) => stripHTML(f, 0)).join('');
+  els.seq.innerHTML = seq.length ? seq.map((f, i) => stripHTML(f, i + 1, { first: i === 0 })).join('') : `<li class="empty">${hold.length ? 'Nothing up next. Drag a task up from Holding when you’re ready.' : 'All clear. Add a task below.'}</li>`;
+  els.hold.innerHTML = hold.length ? hold.map((f, i) => stripHTML(f, `H${i + 1}`)).join('') : '<li class="empty">Drag tasks here to hold them for later.</li>';
+  els.landed.innerHTML = landed.map((f) => stripHTML(f, '')).join('');
   els.landedBay.classList.toggle('hidden', !landed.length);
-  els.landedSummary.textContent = `LANDED · ${landed.length}`;
-
+  els.landedSummary.textContent = `LANDED · ${landed.length} done`;
   const mins = (list) => list.reduce((a, f) => a + f.minutes, 0);
-  els.seqMeta.textContent = seq.length ? `${seq.length} ACFT · EST ${hmm(mins(seq))}` : '';
-  els.holdMeta.textContent = hold.length ? `${hold.length} ACFT · EST ${hmm(mins(hold))}` : '';
-  els.stamp.textContent = `ISSUED ${hhmm(new Date(board.createdAt || Date.now()))}`;
-  radar.setTasks({ seq, hold });
-  if (selectedId && !visible().some((f) => f.id === selectedId && !f.landed)) selectedId = null;
-  markSelected();
+  els.seqMeta.textContent = seq.length ? `${seq.length} · ${hmm(mins(seq))} total` : '';
+  els.holdMeta.textContent = hold.length ? `${hold.length} · ${hmm(mins(hold))}` : '';
+  const toRadar = (f) => ({ id: f.id, task: f.task, label: labelOf(f) });
+  radar.setTasks({ seq: seq.map(toRadar), hold: hold.map(toRadar) });
+  radar.select(selectedId);
 }
 
-// --- radar <-> strips ---
-let selectedId = null;
-function markSelected() {
-  for (const s of document.querySelectorAll('.strip.selected')) s.classList.remove('selected');
-  if (selectedId) document.querySelector(`.strip[data-id="${CSS.escape(selectedId)}"]`)?.classList.add('selected');
-  radar.selectTask(selectedId);
+// --- radar <-> list ---
+function jumpTo(id) {
+  if (!find(id)) return;
+  selectedId = id;
+  render();
+  const li = document.querySelector(`.strip[data-id="${CSS.escape(id)}"]`);
+  if (!li) return;
+  li.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  li.classList.remove('flash');
+  void li.offsetWidth;
+  li.classList.add('flash');
+  li.querySelector('.handle, .chk')?.focus({ preventScroll: true });
 }
-function selectTask(id, { scroll = false } = {}) {
-  selectedId = selectedId === id ? null : id;
-  markSelected();
-  if (scroll && selectedId) document.querySelector(`.strip[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
-const radar = createRadar($('scope'), { onSelectTask: (id) => selectTask(id, { scroll: true }) });
-radar.onStatus((t) => {
-  const credit = $('radar-credit');
-  if (t.sim) credit.textContent = 'SIM: simulated traffic (live feed unavailable or quiet)';
-  else if (t.attribution) credit.innerHTML = `<a href="${esc(t.attribution.url)}" target="_blank" rel="noopener">${esc(t.attribution.text)}</a>`;
+const radar = createRadar($('scope'), {
+  onSelectTask: jumpTo,
+  onStatus: (t) => {
+    const credit = $('radar-credit');
+    if (t.sim) credit.textContent = 'Background traffic: SIM (live feed unavailable)';
+    else if (t.attribution) credit.innerHTML = `Background traffic: <a href="${esc(t.attribution.url)}" target="_blank" rel="noopener">adsb.lol, ODbL</a>`;
+  },
 });
-$('range').addEventListener('click', () => { $('range').textContent = `${radar.cycleRange()} NM`; });
+$('range').addEventListener('click', () => { $('range').textContent = `${radar.cycleRange()} nm`; });
 radar.start();
 
-// --- strip controls ---
-function land(id) {
-  const f = find(id);
-  if (!f || f.landed) return;
-  const before = snapshot().map((x) => (x.race ? { ...x, race: { ...x.race } } : x));
-  f.landed = true;
-  f.landedAt = new Date().toISOString();
-  let msg = `${f.callsign} landed.`;
-  if (f.race?.status === 'racing') {
-    const margin = Date.parse(f.race.etaAt) - Date.now();
-    f.race = { ...f.race, status: 'won', marginMs: Math.max(0, margin) };
-    msg = `${f.callsign} landed. Beat ${f.race.sim ? 'SIM ' : ''}${f.race.callsign} by ${mmss(margin)}.`;
-  } else if (f.race?.status === 'aircraft-landed') {
-    f.race = { ...f.race, status: 'lost' };
-  }
-  // If the sequence is now empty, promote the top of the holding stack.
-  const { seq, hold } = lanes();
-  if (!seq.length && hold.length) { hold[0].lane = 'seq'; hold[0].promoted = true; }
-  const el = document.querySelector(`.strip[data-id="${CSS.escape(id)}"]`);
-  const finish = () => { render(); persist(); };
-  if (el && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    el.classList.add('landed');
-    setTimeout(() => { el.classList.add('leaving'); setTimeout(finish, 300); }, 350);
-  } else finish();
-  toast(msg, { undo: () => { board.flights = before; render(); persist(); } });
-}
-
-function setLane(id, lane) {
+// --- actions ---
+function toggleDone(id) {
   const f = find(id);
   if (!f) return;
-  f.lane = lane;
-  f.landed = false;
-  f.landedAt = null;
-  f.promoted = false;
-  if (f.race?.status === 'racing' || f.race?.status === 'aircraft-landed') f.race = null; // holding ends the race
-  moveToEnd(f); // joins the back of the sequence / holding stack
+  const before = snapshot();
+  if (f.landed) {
+    f.landed = false;
+    f.landedAt = null;
+    const { seq, hold } = lanes();
+    reorder([...seq.map((x) => x.id).filter((x) => x !== id), id], hold.map((x) => x.id)); // back of the sequence
+    toast(`Back in the sequence: ${f.task}`, { ms: 3000 });
+  } else {
+    f.landed = true;
+    f.landedAt = new Date().toISOString();
+    if (editingId === id) editingId = null;
+    toast(`Landed: ${f.task}`, { undo: () => { board.flights = before; render(); persist(); } });
+  }
   render();
   persist();
 }
 
-// Deletes wait out the 5s undo window before reaching the server.
-const pendingDeletes = new Map(); // id -> timer
+function setMinutes(id, m) {
+  const f = find(id);
+  if (!f) return;
+  f.minutes = Math.min(600, Math.max(5, m));
+  render();
+  persist();
+}
+const step = (m, dir) => (dir > 0 ? (m < 60 ? m + 5 : m + 15) : m <= 60 ? m - 5 : m - 15);
+
+function setLane(id, lane) {
+  const f = find(id);
+  if (!f) return;
+  const { seq, hold } = lanes();
+  const s = seq.map((x) => x.id).filter((x) => x !== id);
+  const h = hold.map((x) => x.id).filter((x) => x !== id);
+  if (lane === 'seq') s.push(id); else h.unshift(id);
+  reorder(s, h);
+  render();
+  persist();
+  say(`${f.task} moved to ${lane === 'seq' ? 'the end of Sequence' : 'the top of Holding'}`);
+}
+
+// Deletes wait out the 5 s undo window before reaching the server.
+const pendingDeletes = new Map();
 function del(id) {
   const f = find(id);
   if (!f || f._pendingDelete) return;
   f._pendingDelete = true;
+  if (editingId === id) editingId = null;
   pendingDeletes.set(id, setTimeout(() => commitDelete(id), 5000));
   render();
-  toast(`${f.callsign} deleted.`, {
-    undo: () => {
-      clearTimeout(pendingDeletes.get(id));
-      pendingDeletes.delete(id);
-      delete f._pendingDelete;
-      render();
-    },
+  toast(`Deleted: ${f.task}`, {
+    undo: () => { clearTimeout(pendingDeletes.get(id)); pendingDeletes.delete(id); delete f._pendingDelete; render(); },
   });
 }
 function commitDelete(id, keepalive = false) {
   clearTimeout(pendingDeletes.get(id));
   pendingDeletes.delete(id);
-  persist({ keepalive });
+  flush({ keepalive });
   board.flights = board.flights.filter((f) => f.id !== id);
 }
-// Leaving the page inside an undo window still deletes.
-addEventListener('pagehide', () => { for (const id of [...pendingDeletes.keys()]) commitDelete(id, true); });
+
+function rename(id, text) {
+  const f = find(id);
+  const t = text.replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!f || !t || t === f.task) return;
+  f.task = t;
+  f.callsign = shortLabel(t);
+  render();
+  persist();
+}
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
-  if (!b) {
-    const strip = e.target.closest('.strip:not(.landed)');
-    if (strip && e.target.closest('.main, .no')) selectTask(strip.dataset.id);
-    return;
-  }
-  if (!board) return;
-  const id = b.getAttribute('data-id');
-  const act = b.getAttribute('data-act');
-  if (act === 'land') land(id);
-  else if (act === 'hold') setLane(id, 'hold');
-  else if (act === 'clear' || act === 'return') setLane(id, 'seq');
-  else if (act === 'delete') del(id);
-  else if (act === 'start') startTask(id);
-  else if (act === 'go-around') {
-    const f = find(id);
-    if (!f?.race) return;
-    f.race = goAround(f.race, radar.aircraft(), landing());
-    raceMem.set(f.id, {});
-    render();
-    persist();
-    toast(`Going around. Now racing ${f.race.sim ? 'SIM ' : ''}${f.race.callsign}.`, { ms: 4000 });
+  if (!b || !board) return;
+  const id = b.dataset.id;
+  switch (b.dataset.act) {
+    case 'toggle': toggleDone(id); break;
+    case 'edit': {
+      const f = find(id);
+      if (!f || f.landed) break;
+      editingId = editingId === id && b.classList.contains('main') ? null : id;
+      selectedId = id;
+      render();
+      if (editingId) document.querySelector(`[data-name="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+      break;
+    }
+    case 'close': editingId = null; render(); break;
+    case 'minus': case 'plus': { const f = find(id); if (f) setMinutes(id, step(f.minutes, b.dataset.act === 'plus' ? 1 : -1)); break; }
+    case 'preset': setMinutes(id, +b.dataset.min); break;
+    case 'to-hold': setLane(id, 'hold'); break;
+    case 'to-seq': setLane(id, 'seq'); break;
+    case 'delete': del(id); break;
   }
 });
-
-// --- race a real plane ---
-function raceHTML(f) {
-  const r = f.race;
-  if (!r) return '';
-  const who = `${r.sim ? '<b class="simtag">SIM</b> ' : ''}${esc(r.callsign)}`;
-  const leg = r.legs > 1 || r.leg > 1 ? ` · leg ${r.leg} of ${Math.max(r.leg, r.legs)}` : '';
-  const ga = r.goArounds ? ` · ${r.goArounds} go-around${r.goArounds > 1 ? 's' : ''}` : '';
-  if (r.status === 'racing' && !f.landed) {
-    return `<div class="race">vs ${who} · <span data-countdown="${esc(f.id)}">${mmss(Date.parse(r.etaAt) - Date.now())}</span>${leg}${ga}</div>`;
-  }
-  if (r.status === 'aircraft-landed' && !f.landed) return `<div class="race lost">${who} landed first${ga}. Go around or call it landed.</div>`;
-  if (r.status === 'won') return `<div class="race won">Beat ${who} by ${mmss(r.marginMs || 0)}${ga}</div>`;
-  if (r.status === 'lost') return `<div class="race">${who} landed first${ga}</div>`;
-  return '';
-}
-
-const raceMem = new Map(); // flight id -> { lastSeen, last, awaySince }
-const racing = () => board?.flights.find((f) => !f._pendingDelete && !f.landed && f.race?.status === 'racing');
-const landing = () => radar.landingRunway;
-
-radar.setExtras((now) => {
-  const f = board?.flights.find((x) => x.race && !x.landed && x.race.hex?.startsWith('simrace') && x.race.status === 'racing');
-  return f ? [simArrival(f.race, landing(), now)] : [];
+document.addEventListener('change', (e) => { if (e.target.dataset?.name) rename(e.target.dataset.name, e.target.value); });
+document.addEventListener('keydown', (e) => {
+  if (e.target.dataset?.name && e.key === 'Enter') { rename(e.target.dataset.name, e.target.value); editingId = null; render(); }
+  else if (e.key === 'Escape' && editingId) { editingId = null; render(); }
 });
 
-function startTask(id) {
-  const f = find(id);
-  if (!f) return;
-  f.race = startRace(f, radar.aircraft(), landing());
-  raceMem.set(f.id, {});
+// Add a task by hand
+els.add.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const task = els.addText.value.replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (!task || !board) return;
+  const f = { id: `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, task, callsign: shortLabel(task), minutes: +els.addTime.value || 15, lane: 'seq', landed: false };
+  board.flights.push(f);
+  const { seq, hold } = lanes();
+  reorder(seq.map((x) => x.id), hold.map((x) => x.id));
+  els.addText.value = '';
   render();
   persist();
-  toast(`Racing ${f.race.sim ? 'SIM ' : ''}${f.race.callsign}: touchdown in ${mmss(Date.parse(f.race.etaAt) - Date.now())}. Beat it.`, { ms: 4000 });
-}
-
-function raceTick() {
-  const f = racing();
-  const paired = board?.flights.find((x) => !x.landed && !x._pendingDelete && (x.race?.status === 'racing' || x.race?.status === 'aircraft-landed'));
-  radar.setPaired(paired?.race?.hex || null);
-  if (f) {
-    const mem = raceMem.get(f.id) || raceMem.set(f.id, {}).get(f.id);
-    const { race, event } = tickRace(f.race, radar.aircraft(), landing(), mem);
-    const changedPair = race.hex !== f.race.hex;
-    f.race = race;
-    if (event) {
-      render();
-      persist();
-      if (event === 'next-leg') toast(`Leg ${race.leg}: now racing ${race.sim ? 'SIM ' : ''}${race.callsign}.`, { ms: 4000 });
-      if (event === 'aircraft-landed') toast(`${race.callsign} touched down first.`, { ms: 4000 });
-      // 'repaired' is quiet by design
-    } else if (changedPair) render();
-  }
-  for (const span of document.querySelectorAll('[data-countdown]')) {
-    const x = find(span.dataset.countdown);
-    if (x?.race?.etaAt) span.textContent = mmss(Date.parse(x.race.etaAt) - Date.now());
-  }
-}
-setInterval(raceTick, 1000);
-
-// --- persistence (Neon via /api/boards) ---
-let saveChain = Promise.resolve();
-function persist({ keepalive = false } = {}) {
-  if (!board?.id) return;
-  const flights = board.flights.map((f) => ({
-    id: f.id, landed: !!f.landed, landedAt: f.landedAt || null, lane: f.lane, promoted: !!f.promoted, race: f.race || null,
-    // a pending delete is only sent as deleted when its undo window has closed (commitDelete)
-    deleted: f._pendingDelete && !pendingDeletes.has(f.id) ? true : undefined,
-  }));
-  const payload = JSON.stringify({ owner: OWNER, id: board.id, flights });
-  saveChain = saveChain.then(() =>
-    fetch('/api/boards', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive })
-      .then((r) => { if (!r.ok) throw new Error(`save HTTP ${r.status}`); })
-      .catch((err) => { console.warn('[CTD] save failed', err); toast('Tower log offline · progress not saved', { error: true, ms: 4000 }); })
-  );
-}
-
-// --- Read back: the browser's own speech synthesis, off by default ---
-const synth = 'speechSynthesis' in window ? window.speechSynthesis : null;
-let speaking = false;
-let towerBusy = false;
-function updateTx() { els.tx.classList.toggle('on', towerBusy || speaking); }
-
-function pickVoice() {
-  const voices = synth?.getVoices() || [];
-  const pref = ['en-IE', 'en-GB', 'en-AU', 'en-US'];
-  for (const lang of pref) {
-    const v = voices.find((x) => x.lang?.replace('_', '-') === lang && x.localService) || voices.find((x) => x.lang?.replace('_', '-') === lang);
-    if (v) return v;
-  }
-  return voices.find((x) => /^en/i.test(x.lang)) || null;
-}
-
-function speak(text) {
-  if (!synth || !text) return;
-  synth.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  const v = pickVoice();
-  if (v) { u.voice = v; u.lang = v.lang; }
-  u.rate = 1.05;
-  u.onstart = () => { speaking = true; updateTx(); els.voiceStatus.textContent = 'Transmitting'; };
-  u.onend = u.onerror = () => { speaking = false; updateTx(); els.voiceStatus.textContent = ''; };
-  synth.speak(u);
-}
-function stopSpeaking() {
-  synth?.cancel();
-  speaking = false;
-  updateTx();
-  els.voiceStatus.textContent = '';
-}
-
-if (!synth) {
-  els.readback.disabled = true;
-  els.voiceStatus.textContent = 'Not supported in this browser';
-}
-els.readback.checked = !!synth && store.get('ctd_readback') === '1';
-els.readback.addEventListener('change', () => {
-  store.set('ctd_readback', els.readback.checked ? '1' : '0');
-  if (els.readback.checked) speak(board?.transmission);
-  else stopSpeaking();
+  say(`Added ${task}`);
 });
 
-// --- stand-by chatter while the tower works out the board ---
-let standbyTimer = null;
-const STANDBY = ['Stand by...', 'Checking the sequence...', 'Traffic in sight...', 'Sequencing traffic...', 'Copy your intentions...', 'Clearing the runway...'];
-function startStandby() {
-  let i = 0;
-  towerBusy = true;
-  els.board.classList.remove('hidden');
-  els.board.classList.add('loading');
-  els.board.setAttribute('aria-busy', 'true');
-  els.transmission.textContent = STANDBY[0];
-  clearInterval(standbyTimer);
-  standbyTimer = setInterval(() => { els.transmission.textContent = STANDBY[++i % STANDBY.length]; }, 2000);
-  updateTx();
-  els.board.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+// --- drag to reorder (pointer events: mouse, touch and pen) ---
+let drag = null;
+document.addEventListener('pointerdown', (e) => {
+  const h = e.target.closest('.handle');
+  if (!h || e.button > 0 || !board) return;
+  const li = h.closest('.strip');
+  e.preventDefault();
+  const r = li.getBoundingClientRect();
+  const ph = document.createElement('li');
+  ph.className = 'placeholder';
+  ph.style.height = `${r.height}px`;
+  li.before(ph);
+  Object.assign(li.style, { position: 'fixed', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px` });
+  li.classList.add('dragging');
+  h.setPointerCapture?.(e.pointerId);
+  drag = { li, ph, id: li.dataset.id, dy: e.clientY - r.top, y: e.clientY, raf: 0, moved: false };
+  const scroll = () => {
+    if (!drag) return;
+    const edge = 80;
+    if (drag.y < edge) window.scrollBy(0, -Math.ceil((edge - drag.y) / 6));
+    else if (drag.y > innerHeight - edge) window.scrollBy(0, Math.ceil((drag.y - innerHeight + edge) / 6));
+    drag.raf = requestAnimationFrame(scroll);
+  };
+  drag.raf = requestAnimationFrame(scroll);
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  drag.y = e.clientY;
+  drag.moved = true;
+  drag.li.style.top = `${e.clientY - drag.dy}px`;
+  const under = document.elementsFromPoint(e.clientX, e.clientY);
+  const target = under.find((n) => n.matches?.('#seq > .strip, #hold > .strip'));
+  const rack = under.find((n) => n.matches?.('#seq, #hold'));
+  for (const r of [els.seq, els.hold]) r.classList.toggle('drop-target', r === (target?.parentElement || rack));
+  if (target) {
+    const t = target.getBoundingClientRect();
+    if (e.clientY < t.top + t.height / 2) target.before(drag.ph); else target.after(drag.ph);
+  } else if (rack && !rack.contains(drag.ph)) {
+    rack.querySelector('.empty')?.remove();
+    rack.appendChild(drag.ph);
+  }
+});
+function endDrag(commit) {
+  if (!drag) return;
+  cancelAnimationFrame(drag.raf);
+  const { li, ph, id, moved } = drag;
+  drag = null;
+  for (const r of [els.seq, els.hold]) r.classList.remove('drop-target');
+  if (commit && moved) {
+    const ids = (rack) => [...rack.children].map((n) => (n === ph ? id : n.classList.contains('strip') && n !== li ? n.dataset.id : null)).filter(Boolean);
+    const toHold = ph.parentElement === els.hold;
+    reorder(ids(els.seq), ids(els.hold));
+    const now = lanes();
+    const pos = (toHold ? now.hold : now.seq).findIndex((x) => x.id === id) + 1;
+    say(`${find(id)?.task} moved to ${toHold ? 'Holding' : 'Sequence'}, position ${pos}`);
+    persist();
+  }
+  li.removeAttribute('style');
+  render();
 }
-function stopStandby() {
-  clearInterval(standbyTimer);
-  standbyTimer = null;
-  towerBusy = false;
-  els.board.classList.remove('loading');
-  els.board.removeAttribute('aria-busy');
-  updateTx();
-}
+document.addEventListener('pointerup', () => endDrag(true));
+document.addEventListener('pointercancel', () => endDrag(false));
 
-// --- load / request ---
+// Keyboard: arrow keys on a handle move the task one place, and across the Sequence/Holding line.
+document.addEventListener('keydown', (e) => {
+  const h = e.target.closest?.('.handle');
+  if (!h || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') || !board) return;
+  e.preventDefault();
+  const id = h.dataset.id;
+  const { seq, hold } = lanes();
+  const s = seq.map((f) => f.id), hl = hold.map((f) => f.id);
+  const inSeq = s.includes(id);
+  const list = inSeq ? s : hl;
+  const i = list.indexOf(id);
+  if (e.key === 'ArrowUp') {
+    if (i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+    else if (!inSeq) { hl.shift(); s.push(id); }
+  } else if (i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
+  else if (inSeq) { s.pop(); hl.unshift(id); }
+  reorder(s, hl);
+  render();
+  persist();
+  const now = lanes();
+  const where = now.seq.some((f) => f.id === id) ? `Sequence, position ${now.seq.findIndex((f) => f.id === id) + 1}` : `Holding, position ${now.hold.findIndex((f) => f.id === id) + 1}`;
+  say(`Moved to ${where}`);
+  document.querySelector(`.handle[data-id="${CSS.escape(id)}"]`)?.focus();
+});
+
+// --- persistence (debounced; flushed when leaving the page) ---
+let saveTimer = null, saveChain = Promise.resolve();
+function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => flush(), 350); }
+function flush({ keepalive = false } = {}) {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (!board?.id) return;
+  const flights = board.flights.map((f) => ({
+    id: f.id, task: f.task, minutes: f.minutes, lane: f.lane, landed: !!f.landed, landedAt: f.landedAt || null,
+    deleted: f._pendingDelete && !pendingDeletes.has(f.id) ? true : undefined,
+  }));
+  const body = JSON.stringify({ owner: OWNER, id: board.id, flights });
+  saveChain = saveChain.then(() =>
+    fetch('/api/boards', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body, keepalive })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`save HTTP ${r.status}`);
+        const { flights: saved } = await r.json();
+        const labels = new Map((saved || []).map((f) => [f.id, f.callsign]));
+        for (const f of board?.flights || []) if (labels.get(f.id)) f.callsign = labels.get(f.id);
+      })
+      .catch((err) => { console.warn('[CTD] save failed', err); toast('Offline: changes not saved yet', { error: true, ms: 4000 }); })
+  );
+}
+addEventListener('pagehide', () => {
+  for (const id of [...pendingDeletes.keys()]) commitDelete(id, true);
+  if (saveTimer) flush({ keepalive: true });
+});
+
+// --- load / create ---
 async function restore() {
   try {
     const r = await fetch(`/api/boards?owner=${encodeURIComponent(OWNER)}`, { cache: 'no-store' });
@@ -443,52 +405,63 @@ async function restore() {
   render();
 }
 
+els.dump.addEventListener('input', () => {
+  if (els.dump.value.trim() && !store.get('ctd_typed')) { store.set('ctd_typed', '1'); els.ghosts.classList.add('hidden'); }
+});
+
 els.request.addEventListener('click', async () => {
   const text = els.dump.value.trim();
-  if (!text) { showError('Say intentions: brain-dump at least one task.'); return; }
+  if (!text) { showError('Type a few things first: anything on your mind.'); return; }
   showError('');
-  stopSpeaking();
-  // iOS only lets speech start from a tap: prime it now so the read-back can play when the board arrives.
-  if (els.readback.checked && synth) synth.speak(new SpeechSynthesisUtterance(''));
   els.request.disabled = true;
-  els.request.innerHTML = 'Contacting tower<span class="scanning">_</span>';
-  startStandby();
+  els.dump.disabled = true;
+  els.request.textContent = 'Sorting your list…';
   try {
-    const r = await fetch('/api/clearance', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, owner: OWNER }),
-    });
+    const r = await fetch('/api/clearance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, owner: OWNER }) });
     const data = await r.json().catch(() => ({}));
-    if (!r.ok || !data.board) throw new Error(data.error || `Tower unavailable (HTTP ${r.status}).`);
-    stopStandby();
+    if (!r.ok || !data.board) throw new Error(data.error || `Couldn't sort that (HTTP ${r.status}).`);
     board = data.board;
+    editingId = selectedId = null;
     render();
-    if (els.readback.checked) speak(board.transmission);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {
-    stopStandby();
-    els.board.classList.add('hidden');
-    showError(err.message || 'Frequency congested, try again.');
+    showError(`${err.message} You can try again, or add tasks one by one.`);
   } finally {
     els.request.disabled = false;
-    els.request.textContent = 'Request clearance';
+    els.dump.disabled = false;
+    els.request.textContent = 'Sort my list';
+  }
+});
+
+els.startEmpty.addEventListener('click', async () => {
+  showError('');
+  try {
+    const r = await fetch('/api/boards', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: OWNER, flights: [] }) });
+    const data = await r.json();
+    if (!r.ok || !data.board) throw new Error(data.error || `HTTP ${r.status}`);
+    board = data.board;
+    render();
+    els.addText.focus();
+  } catch (err) {
+    showError(`Couldn't start a list: ${err.message}`);
   }
 });
 
 els.newBoard.addEventListener('click', () => {
-  stopSpeaking();
   hideToast();
   for (const id of [...pendingDeletes.keys()]) commitDelete(id);
   if (board?.id) {
-    fetch('/api/boards', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ owner: OWNER, id: board.id, archived: true }),
-    }).catch(() => {});
+    fetch('/api/boards', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: OWNER, id: board.id, archived: true }) }).catch(() => {});
   }
   board = null;
+  editingId = selectedId = null;
   els.dump.value = '';
-  els.count.textContent = '0/2000';
   render();
   els.dump.focus();
 });
+
+const guide = $('guide');
+$('help').addEventListener('click', () => guide.showModal());
+$('guide-close').addEventListener('click', () => guide.close());
+guide.addEventListener('click', (e) => { if (e.target === guide) guide.close(); });
 
 restore();

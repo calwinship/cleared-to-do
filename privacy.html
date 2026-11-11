@@ -35,17 +35,16 @@
 
   <h2>What we store</h2>
   <ul>
-    <li><b>Your boards:</b> the text you type, the tasks the tower makes from it, and what you do with them (landed, held, deleted, races). Old boards are kept when you start a new one, until you delete your data.</li>
+    <li><b>Your lists:</b> the text you type, the tasks made from it, and what you do with them (order, times, done, deleted). Old boards are kept when you start a new one, until you delete your data.</li>
     <li><b>Rate-limit counters:</b> how many requests came from your device ID and your IP address in the last few minutes. They expire within about a day.</li>
-    <li><b>In your browser:</b> your device ID and a few settings (read back on or off, radar range, whether you've seen the examples).</li>
+    <li><b>In your browser:</b> your device ID and a couple of settings (radar zoom, whether you've seen the examples).</li>
   </ul>
   <p>The database is run by Neon in the United States (AWS, Ohio). The app runs on Vercel, which keeps short-lived request logs that include IP addresses.</p>
 
   <h2>Who else sees what</h2>
   <ul>
-    <li><b>OpenRouter</b> and the AI model provider it routes to receive the text you type, so they can turn it into strips. We currently use free models; free model providers may log prompts or use them to improve their models. Don't type anything you wouldn't want a third party to see.</li>
+    <li><b>OpenRouter</b> and the AI model provider it routes to receive the text you type into the big box, so they can sort it into a list. Tasks you add one by one are not sent to them. We currently use free models; free model providers may log prompts or use them to improve their models. Don't type anything you wouldn't want a third party to see.</li>
     <li><b>Google Fonts</b> serves the typeface, so Google sees your IP address when the page loads.</li>
-    <li><b>Read back</b> uses your own device's speech. Some browsers use online voices (for example Chrome's “Google” voices), which send the text to that company.</li>
     <li><b>adsb.lol</b> supplies the aircraft on the radar. We fetch that public data from our server; nothing about you is sent to them.</li>
   </ul>
 
