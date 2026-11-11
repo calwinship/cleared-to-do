@@ -31,7 +31,7 @@ http
       }
       const rel = normalize(url.pathname === '/' ? '/index.html' : url.pathname).replace(/^(\.\.[/\\])+/, '');
       const file = join(root, rel);
-      if (!file.startsWith(root) || /\/(\.env|\.projects|scripts|lib|api)\b/.test(rel)) return res.status(404).send('not found');
+      if (!file.startsWith(root) || /\/(\.env|\.projects|scripts|lib|api|node_modules)\b/.test(rel)) return res.status(404).send('not found');
       const body = await readFile(file);
       res.setHeader('Content-Type', TYPES[extname(file)] || 'application/octet-stream');
       res.end(body);

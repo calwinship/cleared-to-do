@@ -166,8 +166,44 @@
   .switch input:checked { background: #2f7a49; }
   .switch input:checked::after { transform: translateX(16px); background: var(--phosphor); }
   .switch input:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
+  /* Radar */
+  .radar { margin-top: 14px; position: relative; }
+  .scope { display: block; width: 100%; max-width: 520px; margin: 0 auto; aspect-ratio: 1; touch-action: manipulation; }
+  .scope-bg { fill: #07110b; stroke: var(--rail-hi); stroke-width: 3; }
+  .scope .ring { fill: none; stroke: #1d3326; stroke-width: 2; }
+  .scope .ring-label { fill: #6b8f77; font: 26px var(--mono); }
+  .scope .tick { stroke: #2c4a37; stroke-width: 2; }
+  .scope .runway { stroke: #a3b2a8; stroke-linecap: butt; }
+  .scope .centreline { stroke: #2f5a3d; stroke-width: 2; stroke-dasharray: 10 10; }
+  .scope .rwy-label { fill: #a3b2a8; font: 600 26px var(--mono); }
+  .scope .sweep { stroke: rgba(141,240,168,.18); stroke-width: 3; }
+  .scope .badge { fill: var(--phosphor); font: 600 28px var(--mono); letter-spacing: 2px; }
+  .scope .badge.sim { fill: var(--amber); }
+  .scope .range-label { fill: #a3b2a8; font: 600 28px var(--mono); }
+  .scope .ac .blip { fill: none; stroke: #6f9a7c; stroke-width: 2.5; }
+  .scope .ac .vec { stroke: #4f7a5d; stroke-width: 2; }
+  .scope .ac .ac-label { fill: #8fb39b; font: 26px var(--mono); }
+  .scope .ac.sim .blip { stroke: #b39443; }
+  .scope .ac.sim .ac-label { fill: #b39443; }
+  .scope .ac.paired .blip { stroke: #ff7a6b; stroke-width: 4; fill: rgba(255,90,74,.25); }
+  .scope .ac.paired .ac-label { fill: #ffb4a8; font-weight: 700; }
+  .scope .ac.paired .vec { stroke: #ff7a6b; }
+  .scope .task { cursor: pointer; outline: none; }
+  .scope .task .hit { fill: transparent; }
+  .scope .task .tblip { fill: var(--phosphor); stroke: #06200f; stroke-width: 2; }
+  .scope .task.hold .tblip { fill: var(--amber); }
+  .scope .task .task-label { fill: #e8f1eb; font: 700 30px var(--mono); paint-order: stroke; stroke: #07110b; stroke-width: 5px; }
+  .scope .task .sel-ring { fill: none; stroke: transparent; stroke-width: 3; }
+  .scope .task.selected .sel-ring, .scope .task:focus-visible .sel-ring { stroke: #fff; }
+  .scope .task.first .tblip { filter: drop-shadow(0 0 6px rgba(141,240,168,.9)); }
+  .radar-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--ink-dim); letter-spacing: .04em; }
+  .radar-bar a { color: var(--ink-dim); }
+  .radar-bar .btn-ghost { min-height: 36px; padding: 6px 10px; font-size: 11px; }
+  .strip.selected { outline: 3px solid #fff; outline-offset: 2px; }
+  .strip .main { cursor: pointer; }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .strip, .switch input, .switch input::after { transition: none; } .scanning, .tx.on::before { animation: none; } }
+  @media (min-width: 900px) { .wrap { max-width: 600px; } }
   @media (min-width: 480px) { .strip { grid-template-columns: 52px 1fr auto; } .strip .cs { font-size: 18px; } }
 </style>
 </head>
@@ -180,6 +216,14 @@
     </div>
     <div class="clock"><b id="local-clock" aria-label="Local time">--:--</b><span id="zulu" aria-label="UTC time">--:--Z</span> · TWR</div>
   </header>
+
+  <section class="radar" aria-label="Radar">
+    <div id="scope"></div>
+    <div class="radar-bar">
+      <span id="radar-credit">Connecting to traffic feed…</span>
+      <button class="btn btn-ghost" id="range" type="button" aria-label="Change radar range">Range</button>
+    </div>
+  </section>
 
   <div id="boot" class="boot">Contacting tower<span class="scanning">_</span></div>
 

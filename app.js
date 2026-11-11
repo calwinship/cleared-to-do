@@ -1,4 +1,6 @@
-// Cleared To Do: client. One board per device; strips are tasks, the radar (stage 2) shows them as traffic.
+// Cleared To Do: client. One board per device; strips are tasks, the radar shows them as traffic.
+import { createRadar } from './radar.js';
+
 const $ = (id) => document.getElementById(id);
 const els = {
   intake: $('intake'), dump: $('dump'), count: $('count'), request: $('request'), error: $('error'),
@@ -120,6 +122,7 @@ export function render() {
   if (!board) {
     els.board.classList.add('hidden');
     els.intake.classList.remove('hidden');
+    radar.setTasks({ seq: [], hold: [] });
     return;
   }
   els.intake.classList.add('hidden');
@@ -141,7 +144,31 @@ export function render() {
   els.seqMeta.textContent = seq.length ? `${seq.length} ACFT · EST ${hmm(mins(seq))}` : '';
   els.holdMeta.textContent = hold.length ? `${hold.length} ACFT · EST ${hmm(mins(hold))}` : '';
   els.stamp.textContent = `ISSUED ${hhmm(new Date(board.createdAt || Date.now()))}`;
+  radar.setTasks({ seq, hold });
+  if (selectedId && !visible().some((f) => f.id === selectedId && !f.landed)) selectedId = null;
+  markSelected();
 }
+
+// --- radar <-> strips ---
+let selectedId = null;
+function markSelected() {
+  for (const s of document.querySelectorAll('.strip.selected')) s.classList.remove('selected');
+  if (selectedId) document.querySelector(`.strip[data-id="${CSS.escape(selectedId)}"]`)?.classList.add('selected');
+  radar.selectTask(selectedId);
+}
+function selectTask(id, { scroll = false } = {}) {
+  selectedId = selectedId === id ? null : id;
+  markSelected();
+  if (scroll && selectedId) document.querySelector(`.strip[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+const radar = createRadar($('scope'), { onSelectTask: (id) => selectTask(id, { scroll: true }) });
+radar.onStatus((t) => {
+  const credit = $('radar-credit');
+  if (t.sim) credit.textContent = 'SIM: simulated traffic (live feed unavailable or quiet)';
+  else if (t.attribution) credit.innerHTML = `<a href="${esc(t.attribution.url)}" target="_blank" rel="noopener">${esc(t.attribution.text)}</a>`;
+});
+$('range').addEventListener('click', () => { $('range').textContent = `${radar.cycleRange()} NM`; });
+radar.start();
 
 // --- strip controls ---
 function land(id) {
@@ -202,7 +229,12 @@ addEventListener('pagehide', () => { for (const id of [...pendingDeletes.keys()]
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
-  if (!b || !board) return;
+  if (!b) {
+    const strip = e.target.closest('.strip:not(.landed)');
+    if (strip && e.target.closest('.main, .no')) selectTask(strip.dataset.id);
+    return;
+  }
+  if (!board) return;
   const id = b.getAttribute('data-id');
   const act = b.getAttribute('data-act');
   if (act === 'land') land(id);
