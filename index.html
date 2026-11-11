@@ -200,6 +200,13 @@
   .radar-bar a { color: var(--ink-dim); }
   .radar-bar .btn-ghost { min-height: 36px; padding: 6px 10px; font-size: 11px; }
   .strip.selected { outline: 3px solid #fff; outline-offset: 2px; }
+  .strip .race { margin-top: 3px; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: #1d4f2d; }
+  .strip .race [data-countdown] { font-variant-numeric: tabular-nums; font-size: 14px; }
+  .strip .race.won { color: #1d6b34; }
+  .strip .race.lost { color: var(--stamp); }
+  .strip .race .simtag { background: #7a5a00; color: #fff3c4; padding: 0 4px; border-radius: 2px; font-size: 10px; }
+  .strip.racing { box-shadow: 0 0 0 2px #ff7a6b, 0 2px 10px rgba(255,90,74,.25); }
+  .strip.beaten { box-shadow: 0 0 0 2px var(--stamp); }
   .strip .main { cursor: pointer; }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .strip, .switch input, .switch input::after { transition: none; } .scanning, .tx.on::before { animation: none; } }

@@ -1,5 +1,6 @@
 // Cleared To Do: client. One board per device; strips are tasks, the radar shows them as traffic.
 import { createRadar } from './radar.js';
+import { startRace, tickRace, goAround, simArrival, mmss } from './race.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -96,22 +97,33 @@ function stripHTML(f, pos, opts = {}) {
   const note = lane === 'hold' && f.note && !f.landed ? `<span class="note">${esc(f.note)}</span>` : '';
   const cs = esc(f.callsign);
   const id = esc(f.id);
+  const race = f.race && !f.landed && lane === 'seq' ? f.race : null;
+  const raceLine = raceHTML(f);
   const del = `<button class="land sm del" type="button" data-act="delete" data-id="${id}" aria-label="Delete ${cs}" title="Delete">✕</button>`;
   let act;
   if (f.landed) {
     act = `<button class="land sm" type="button" data-act="return" data-id="${id}" aria-label="Return ${cs} to sequence">Return to sequence</button><div class="row">${del}</div>`;
+  } else if (race?.status === 'aircraft-landed') {
+    act = `<button class="land" type="button" data-act="go-around" data-id="${id}" aria-label="Go around: race the next arrival">Go around</button>` +
+      `<div class="row"><button class="land sm" type="button" data-act="land" data-id="${id}" aria-label="Mark ${cs} landed">Landed</button></div>`;
+  } else if (lane === 'seq' && opts.cleared && race?.status !== 'racing') {
+    act = `<button class="land" type="button" data-act="start" data-id="${id}" aria-label="Start ${cs}: race a real arrival">Start</button>` +
+      `<div class="row"><button class="land sm" type="button" data-act="land" data-id="${id}" aria-label="Mark ${cs} landed">Landed</button><button class="land sm" type="button" data-act="hold" data-id="${id}" aria-label="Send ${cs} to holding">Hold</button>${del}</div>`;
   } else if (lane === 'seq') {
     act = `<button class="land" type="button" data-act="land" data-id="${id}" aria-label="Mark ${cs} landed">Landed</button>` +
       `<div class="row"><button class="land sm" type="button" data-act="hold" data-id="${id}" aria-label="Send ${cs} to holding">Hold</button>${del}</div>`;
   } else {
     act = `<button class="land" type="button" data-act="clear" data-id="${id}" aria-label="Clear ${cs} into the sequence">Clear</button><div class="row">${del}</div>`;
   }
+  if (race?.status === 'racing') classes.push('racing');
+  if (race?.status === 'aircraft-landed') classes.push('beaten');
   return `<article class="${classes.join(' ')}" data-id="${id}">
     <div class="no"><b>${esc(no)}</b><small>${sub}</small></div>
     <div class="main">
       <div class="cs">${cs}</div>
       <div class="task">${esc(f.task)}</div>
       <div class="meta"><span>EST ${hmm(f.minutes)}</span>${note}</div>
+      ${raceLine}
     </div>
     <div class="act">${act}</div>
   </article>`;
@@ -174,9 +186,17 @@ radar.start();
 function land(id) {
   const f = find(id);
   if (!f || f.landed) return;
-  const before = snapshot();
+  const before = snapshot().map((x) => (x.race ? { ...x, race: { ...x.race } } : x));
   f.landed = true;
   f.landedAt = new Date().toISOString();
+  let msg = `${f.callsign} landed.`;
+  if (f.race?.status === 'racing') {
+    const margin = Date.parse(f.race.etaAt) - Date.now();
+    f.race = { ...f.race, status: 'won', marginMs: Math.max(0, margin) };
+    msg = `${f.callsign} landed. Beat ${f.race.sim ? 'SIM ' : ''}${f.race.callsign} by ${mmss(margin)}.`;
+  } else if (f.race?.status === 'aircraft-landed') {
+    f.race = { ...f.race, status: 'lost' };
+  }
   // If the sequence is now empty, promote the top of the holding stack.
   const { seq, hold } = lanes();
   if (!seq.length && hold.length) { hold[0].lane = 'seq'; hold[0].promoted = true; }
@@ -186,7 +206,7 @@ function land(id) {
     el.classList.add('landed');
     setTimeout(() => { el.classList.add('leaving'); setTimeout(finish, 300); }, 350);
   } else finish();
-  toast(`${f.callsign} landed.`, { undo: () => { board.flights = before; render(); persist(); } });
+  toast(msg, { undo: () => { board.flights = before; render(); persist(); } });
 }
 
 function setLane(id, lane) {
@@ -196,6 +216,7 @@ function setLane(id, lane) {
   f.landed = false;
   f.landedAt = null;
   f.promoted = false;
+  if (f.race?.status === 'racing' || f.race?.status === 'aircraft-landed') f.race = null; // holding ends the race
   moveToEnd(f); // joins the back of the sequence / holding stack
   render();
   persist();
@@ -241,7 +262,76 @@ document.addEventListener('click', (e) => {
   else if (act === 'hold') setLane(id, 'hold');
   else if (act === 'clear' || act === 'return') setLane(id, 'seq');
   else if (act === 'delete') del(id);
+  else if (act === 'start') startTask(id);
+  else if (act === 'go-around') {
+    const f = find(id);
+    if (!f?.race) return;
+    f.race = goAround(f.race, radar.aircraft(), landing());
+    raceMem.set(f.id, {});
+    render();
+    persist();
+    toast(`Going around. Now racing ${f.race.sim ? 'SIM ' : ''}${f.race.callsign}.`, { ms: 4000 });
+  }
 });
+
+// --- race a real plane ---
+function raceHTML(f) {
+  const r = f.race;
+  if (!r) return '';
+  const who = `${r.sim ? '<b class="simtag">SIM</b> ' : ''}${esc(r.callsign)}`;
+  const leg = r.legs > 1 || r.leg > 1 ? ` · leg ${r.leg} of ${Math.max(r.leg, r.legs)}` : '';
+  const ga = r.goArounds ? ` · ${r.goArounds} go-around${r.goArounds > 1 ? 's' : ''}` : '';
+  if (r.status === 'racing' && !f.landed) {
+    return `<div class="race">vs ${who} · <span data-countdown="${esc(f.id)}">${mmss(Date.parse(r.etaAt) - Date.now())}</span>${leg}${ga}</div>`;
+  }
+  if (r.status === 'aircraft-landed' && !f.landed) return `<div class="race lost">${who} landed first${ga}. Go around or call it landed.</div>`;
+  if (r.status === 'won') return `<div class="race won">Beat ${who} by ${mmss(r.marginMs || 0)}${ga}</div>`;
+  if (r.status === 'lost') return `<div class="race">${who} landed first${ga}</div>`;
+  return '';
+}
+
+const raceMem = new Map(); // flight id -> { lastSeen, last, awaySince }
+const racing = () => board?.flights.find((f) => !f._pendingDelete && !f.landed && f.race?.status === 'racing');
+const landing = () => radar.landingRunway;
+
+radar.setExtras((now) => {
+  const f = board?.flights.find((x) => x.race && !x.landed && x.race.hex?.startsWith('simrace') && x.race.status === 'racing');
+  return f ? [simArrival(f.race, landing(), now)] : [];
+});
+
+function startTask(id) {
+  const f = find(id);
+  if (!f) return;
+  f.race = startRace(f, radar.aircraft(), landing());
+  raceMem.set(f.id, {});
+  render();
+  persist();
+  toast(`Racing ${f.race.sim ? 'SIM ' : ''}${f.race.callsign}: touchdown in ${mmss(Date.parse(f.race.etaAt) - Date.now())}. Beat it.`, { ms: 4000 });
+}
+
+function raceTick() {
+  const f = racing();
+  const paired = board?.flights.find((x) => !x.landed && !x._pendingDelete && (x.race?.status === 'racing' || x.race?.status === 'aircraft-landed'));
+  radar.setPaired(paired?.race?.hex || null);
+  if (f) {
+    const mem = raceMem.get(f.id) || raceMem.set(f.id, {}).get(f.id);
+    const { race, event } = tickRace(f.race, radar.aircraft(), landing(), mem);
+    const changedPair = race.hex !== f.race.hex;
+    f.race = race;
+    if (event) {
+      render();
+      persist();
+      if (event === 'next-leg') toast(`Leg ${race.leg}: now racing ${race.sim ? 'SIM ' : ''}${race.callsign}.`, { ms: 4000 });
+      if (event === 'aircraft-landed') toast(`${race.callsign} touched down first.`, { ms: 4000 });
+      // 'repaired' is quiet by design
+    } else if (changedPair) render();
+  }
+  for (const span of document.querySelectorAll('[data-countdown]')) {
+    const x = find(span.dataset.countdown);
+    if (x?.race?.etaAt) span.textContent = mmss(Date.parse(x.race.etaAt) - Date.now());
+  }
+}
+setInterval(raceTick, 1000);
 
 // --- persistence (Neon via /api/boards) ---
 let saveChain = Promise.resolve();

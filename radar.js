@@ -46,6 +46,7 @@ export function createRadar(container, { onSelectTask } = {}) {
   let tasks = { seq: [], hold: [] };
   let selectedTask = null;
   let pairedHex = null;
+  let extras = () => [];
   let landingRunway = RUNWAYS[1].thresholds[1]; // 28L until traffic says otherwise
   const nodes = new Map(); // hex -> {g, blip, vec, label, disp:{x,y}, off:{x,y,t}}
   const taskNodes = new Map();
@@ -145,7 +146,7 @@ export function createRadar(container, { onSelectTask } = {}) {
   }
 
   function drawTraffic(now) {
-    const list = traffic.sim ? simAircraft(now) : traffic.aircraft.map((a) => extrapolate(a, now));
+    const list = (traffic.sim ? simAircraft(now) : traffic.aircraft.map((a) => extrapolate(a, now))).concat(extras(now));
     const seen = new Set();
     for (const a of list) {
       seen.add(a.hex);
@@ -262,6 +263,7 @@ export function createRadar(container, { onSelectTask } = {}) {
     setTasks(next) { tasks = next; },
     selectTask(id) { selectedTask = id; },
     setPaired(hex) { pairedHex = hex; },
+    setExtras(fn) { extras = fn || (() => []); },
     cycleRange() {
       range = RANGES[(RANGES.indexOf(range) + 1) % RANGES.length];
       try { localStorage.setItem('ctd_range', String(range)); } catch {}
