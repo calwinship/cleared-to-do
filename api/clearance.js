@@ -1,5 +1,6 @@
 import { requestClearance, MAX_INPUT } from '../lib/atc.js';
 import { insertBoard, isId } from '../lib/db.js';
+import { limited } from '../lib/ratelimit.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,6 +14,7 @@ export default async function handler(req, res) {
   if (text.length > MAX_INPUT) {
     return res.status(413).json({ error: `Too much traffic: keep it under ${MAX_INPUT} characters.` });
   }
+  if (await limited(req, res, 'clearance', owner)) return;
   const key = process.env.OPENROUTER_API_API_KEY;
   if (!key) return res.status(500).json({ error: 'Tower offline: OpenRouter key missing.' });
 
@@ -26,7 +28,7 @@ export default async function handler(req, res) {
 
   try {
     const saved = await insertBoard(owner, { ...board, input: text });
-    return res.status(200).json({ board: saved });
+    return res.status(200).json({ board: saved, usage: board.usage });
   } catch (err) {
     console.error('save failed', err);
     return res.status(503).json({ error: 'Tower log unavailable: could not save the board. Try again.' });

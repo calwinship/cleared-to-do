@@ -1,7 +1,8 @@
 import { latestBoard, updateFlights, archiveBoard, isId } from '../lib/db.js';
+import { limited } from '../lib/ratelimit.js';
 
 // GET  /api/boards?owner=<uuid>                 -> { board | null }   (active board for this device)
-// PATCH /api/boards { owner, id, flights }      -> { flights }        (landed / promoted state)
+// PATCH /api/boards { owner, id, flights }      -> { flights }        (state, order, deletions)
 // PATCH /api/boards { owner, id, archived:true } -> { ok }            (start a new board)
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -9,11 +10,13 @@ export default async function handler(req, res) {
     if (req.method === 'GET') {
       const owner = req.query?.owner;
       if (!isId(owner)) return res.status(400).json({ error: 'Missing device ID.' });
+      if (await limited(req, res, 'read', owner)) return;
       return res.status(200).json({ board: await latestBoard(owner) });
     }
     if (req.method === 'PATCH') {
       const { owner, id, flights, archived } = req.body || {};
       if (!isId(owner) || !isId(id)) return res.status(400).json({ error: 'Missing board or device ID.' });
+      if (await limited(req, res, 'write', owner)) return;
       if (archived === true) {
         await archiveBoard(owner, id);
         return res.status(200).json({ ok: true });

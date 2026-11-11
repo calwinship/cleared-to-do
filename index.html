@@ -48,6 +48,7 @@
   .brand p { margin: 2px 0 0; font-size: 12px; color: var(--ink-dim); letter-spacing: .04em; }
   .clock { text-align: right; font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; white-space: nowrap; }
   .clock b { display: block; font-size: 18px; color: var(--phosphor); font-weight: 600; letter-spacing: .04em; }
+  .clock span { color: var(--ink-dim); }
 
   /* Brain dump */
   .intake { margin-top: 18px; }
@@ -114,21 +115,26 @@
   .strip .task { font-size: 13px; color: var(--paper-ink-dim); overflow-wrap: anywhere; }
   .strip .meta { display: flex; gap: 10px; font-size: 11px; letter-spacing: .06em; color: var(--paper-ink-dim); text-transform: uppercase; flex-wrap: wrap; }
   .strip .meta .note { color: #7a5a00; }
-  .strip .act { border-left: 1px solid var(--paper-rule); display: flex; align-items: center; }
+  .strip .act { border-left: 1px solid var(--paper-rule); display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 4px; padding: 6px; }
+  .strip .act .row { display: flex; gap: 4px; }
+  .strip .act .row > * { flex: 1; }
   .land {
     appearance: none; cursor: pointer; border: 1.5px solid var(--paper-ink); background: transparent; color: var(--paper-ink);
     font: 700 11px var(--mono); letter-spacing: .12em; padding: 0 10px; height: 40px; border-radius: 4px; text-transform: uppercase;
   }
   .land:active { background: var(--paper-ink); color: var(--paper-seq); }
+  .land.sm { height: 30px; font-size: 10px; padding: 0 8px; border-width: 1px; }
+  .strip.landed .land.sm:first-child { height: auto; min-height: 30px; padding: 4px 8px; max-width: 110px; line-height: 1.2; }
+  .land.del { font-size: 13px; letter-spacing: 0; }
   .strip.cleared { box-shadow: 0 0 0 2px var(--phosphor), 0 2px 10px rgba(141,240,168,.25); }
   .strip.cleared .no small { color: #1d6b34; font-weight: 700; }
   .strip.promoted .no small { color: #1d6b34; }
 
   .strip.landed { opacity: .8; }
   .strip.landed .cs, .strip.landed .task { text-decoration: line-through; text-decoration-thickness: 2px; }
-  .strip.landed .act { visibility: hidden; }
+  .strip.landed.leaving .act { visibility: hidden; }
   .strip.landed::after {
-    content: "LANDED"; position: absolute; right: 12px; top: 50%; transform: translateY(-50%) rotate(-8deg);
+    content: "LANDED"; position: absolute; right: 120px; top: 50%; transform: translateY(-50%) rotate(-8deg); pointer-events: none;
     border: 2px solid var(--stamp); color: var(--stamp); font: 700 13px var(--mono); letter-spacing: .18em; padding: 2px 6px; border-radius: 3px;
   }
   .strip.leaving { opacity: 0; transform: translateX(24px); }
@@ -147,12 +153,21 @@
 
   .boot { margin-top: 28px; font-size: 12px; letter-spacing: .14em; color: var(--ink-dim); text-transform: uppercase; }
   .toast {
-    position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%);
-    background: #2a1513; color: #ffb4a8; border: 1px solid #6b2a24; border-radius: 6px; padding: 10px 14px;
-    font-size: 12px; letter-spacing: .04em; max-width: calc(100% - 32px);
+    position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 10;
+    display: flex; align-items: center; gap: 14px;
+    background: #1b231f; color: var(--ink); border: 1px solid var(--rail-hi); border-radius: 6px; padding: 8px 8px 8px 14px;
+    font-size: 13px; letter-spacing: .04em; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.5);
   }
+  .toast.error { background: #2a1513; color: #ffb4a8; border-color: #6b2a24; padding: 10px 14px; }
+  .toast button { appearance: none; border: 1px solid var(--phosphor); background: transparent; color: var(--phosphor); font: 700 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; border-radius: 4px; padding: 0 12px; height: 36px; cursor: pointer; }
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink); min-height: 40px; }
+  .switch input { appearance: none; width: 36px; height: 20px; border-radius: 10px; background: var(--rail-hi); position: relative; margin: 0; cursor: pointer; transition: background .2s; }
+  .switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform .2s; }
+  .switch input:checked { background: #2f7a49; }
+  .switch input:checked::after { transform: translateX(16px); background: var(--phosphor); }
+  .switch input:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
   .hidden { display: none !important; }
-  @media (prefers-reduced-motion: reduce) { .strip { transition: none; } .scanning, .tx.on::before { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .strip, .switch input, .switch input::after { transition: none; } .scanning, .tx.on::before { animation: none; } }
   @media (min-width: 480px) { .strip { grid-template-columns: 52px 1fr auto; } .strip .cs { font-size: 18px; } }
 </style>
 </head>
@@ -163,7 +178,7 @@
       <h1>Cleared To Do</h1>
       <p>your tasks, cleared to land</p>
     </div>
-    <div class="clock" aria-label="Current time UTC"><b id="zulu">----Z</b>TWR · ACTIVE</div>
+    <div class="clock"><b id="local-clock" aria-label="Local time">--:--</b><span id="zulu" aria-label="UTC time">--:--Z</span> · TWR</div>
   </header>
 
   <div id="boot" class="boot">Contacting tower<span class="scanning">_</span></div>
@@ -179,7 +194,10 @@
     <div class="tower">
       <div class="label"><span><span class="tx" id="tx" aria-hidden="true">TX</span>Tower transmission</span><span class="freq">118.300</span></div>
       <blockquote id="transmission"></blockquote>
-      <div class="tower-actions" id="tower-actions"></div>
+      <div class="tower-actions" id="tower-actions">
+        <label class="switch"><input type="checkbox" id="readback" role="switch"> Read back</label>
+        <span class="status" id="voice-status"></span>
+      </div>
     </div>
 
     <div class="bay">
@@ -204,360 +222,6 @@
   </section>
   <div id="toast" class="toast hidden" role="status"></div>
 </div>
-
-<script>
-(() => {
-  const $ = (id) => document.getElementById(id);
-  const els = {
-    intake: $('intake'), dump: $('dump'), count: $('count'), request: $('request'), error: $('error'),
-    board: $('board'), transmission: $('transmission'), towerActions: $('tower-actions'), tx: $('tx'),
-    seq: $('seq'), hold: $('hold'), landed: $('landed'), landedBay: $('landed-bay'), landedSummary: $('landed-summary'),
-    seqMeta: $('seq-meta'), holdMeta: $('hold-meta'), stamp: $('stamp'), newBoard: $('new-board'),
-  };
-
-  let board = null;
-
-  // Anonymous device ID: no login, boards are keyed by this.
-  const OWNER = (() => {
-    const ok = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
-    let id = null;
-    try { id = localStorage.getItem('ctd_owner'); } catch {}
-    if (!ok(id)) {
-      id = crypto.randomUUID();
-      try { localStorage.setItem('ctd_owner', id); } catch {}
-    }
-    return id;
-  })();
-
-  let toastTimer;
-  function showToast(msg) {
-    const t = document.getElementById('toast');
-    t.textContent = msg; t.classList.remove('hidden');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add('hidden'), 4000);
-  }
-
-  // --- Zulu clock ---
-  const tick = () => {
-    const d = new Date();
-    els.zulu = els.zulu || $('zulu');
-    els.zulu.textContent = String(d.getUTCHours()).padStart(2, '0') + String(d.getUTCMinutes()).padStart(2, '0') + 'Z';
-  };
-  tick(); setInterval(tick, 15000);
-
-  // --- helpers ---
-  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const est = (m) => `${Math.floor(m / 60)}+${String(m % 60).padStart(2, '0')}`;
-  const showError = (msg) => { els.error.textContent = msg; els.error.classList.toggle('hidden', !msg); };
-
-  els.dump.addEventListener('input', () => { els.count.textContent = `${els.dump.value.length}/2000`; });
-
-  // --- rendering ---
-  function stripHTML(f, pos, opts = {}) {
-    const lane = f.lane === 'hold' ? 'hold' : 'seq';
-    const classes = ['strip', lane];
-    if (f.landed) classes.push('landed');
-    if (opts.cleared) classes.push('cleared');
-    if (f.promoted) classes.push('promoted');
-    let no, sub;
-    if (f.landed) { no = '✓'; sub = 'DOWN'; }
-    else if (lane === 'seq') { no = String(pos).padStart(2, '0'); sub = opts.cleared ? 'CLRD' : (f.promoted ? 'PROM' : 'SEQ'); }
-    else { no = 'H' + pos; sub = 'HOLD'; }
-    const note = lane === 'hold' && f.note ? `<span class="note">${esc(f.note)}</span>` : '';
-    return `<article class="${classes.join(' ')}" data-id="${esc(f.id)}">
-      <div class="no"><b>${esc(no)}</b><small>${sub}</small></div>
-      <div class="main">
-        <div class="cs">${esc(f.callsign)}</div>
-        <div class="task">${esc(f.task)}</div>
-        <div class="meta"><span>EST ${est(f.minutes)}</span>${note}</div>
-      </div>
-      <div class="act"><button class="land" type="button" data-land="${esc(f.id)}" aria-label="Mark ${esc(f.callsign)} landed">Landed</button></div>
-    </article>`;
-  }
-
-  function render() {
-    document.getElementById('boot')?.remove();
-    if (!board) {
-      els.board.classList.add('hidden');
-      els.intake.classList.remove('hidden');
-      return;
-    }
-    els.intake.classList.add('hidden');
-    els.board.classList.remove('hidden');
-    els.transmission.textContent = board.transmission;
-
-    const active = board.flights.filter((f) => !f.landed);
-    const seq = active.filter((f) => f.lane === 'seq');
-    const hold = active.filter((f) => f.lane === 'hold');
-    const landed = board.flights.filter((f) => f.landed);
-
-    els.seq.innerHTML = seq.length
-      ? seq.map((f, i) => stripHTML(f, i + 1, { cleared: i === 0 })).join('')
-      : `<div class="empty">${hold.length ? 'Runway clear.' : 'All traffic landed. Runway clear. Good day.'}</div>`;
-    els.hold.innerHTML = hold.length
-      ? hold.map((f, i) => stripHTML(f, i + 1)).join('')
-      : '<div class="empty">Holding stack empty.</div>';
-    els.landed.innerHTML = landed.map((f) => stripHTML(f, 0)).join('');
-    els.landedBay.classList.toggle('hidden', !landed.length);
-    els.landedSummary.textContent = `LANDED · ${landed.length}`;
-
-    const mins = (list) => list.reduce((a, f) => a + f.minutes, 0);
-    els.seqMeta.textContent = seq.length ? `${seq.length} ACFT · EST ${est(mins(seq))}` : '';
-    els.holdMeta.textContent = hold.length ? `${hold.length} ACFT` : '';
-    const t = new Date(board.createdAt || Date.now());
-    els.stamp.textContent = `ISSUED ${String(t.getUTCHours()).padStart(2, '0')}${String(t.getUTCMinutes()).padStart(2, '0')}Z ${t.toISOString().slice(0, 10)}`;
-  }
-
-  // --- landing ---
-  function land(id) {
-    const f = board?.flights.find((x) => x.id === id);
-    if (!f || f.landed) return;
-    const el = document.querySelector(`.strip[data-id="${CSS.escape(id)}"]`);
-    const finish = () => {
-      f.landed = true;
-      f.landedAt = new Date().toISOString();
-      // If the sequence is now empty, promote the top of the holding stack.
-      const active = board.flights.filter((x) => !x.landed);
-      if (!active.some((x) => x.lane === 'seq')) {
-        const next = active.find((x) => x.lane === 'hold');
-        if (next) { next.lane = 'seq'; next.promoted = true; }
-      }
-      render();
-      onBoardChanged();
-    };
-    if (el && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      el.classList.add('landed');
-      setTimeout(() => { el.classList.add('leaving'); setTimeout(finish, 300); }, 450);
-    } else finish();
-  }
-
-  document.addEventListener('click', (e) => {
-    const b = e.target.closest('[data-land]');
-    if (b) land(b.getAttribute('data-land'));
-  });
-
-  // --- Tower radio (ElevenLabs audio, played through a VHF-style filter) ---
-  const radio = { ctx: null, bytes: null, buffer: null, source: null, el: null, state: 'idle', boardId: null };
-
-  // Must run synchronously inside the click so iOS/Safari allow the later autoplay.
-  function unlockAudio() {
-    // iOS 17+: play through the ringer/silent switch like a media player would.
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    if (!radio.ctx) radio.ctx = new AC();
-    if (radio.ctx.state === 'suspended') radio.ctx.resume();
-    const b = radio.ctx.createBuffer(1, 1, 22050);
-    const s = radio.ctx.createBufferSource();
-    s.buffer = b; s.connect(radio.ctx.destination); s.start(0);
-  }
-
-  function squelch(ctx, at, dur, out) {
-    const n = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
-    const d = n.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
-    const src = ctx.createBufferSource();
-    const g = ctx.createGain(); g.gain.value = 0.12;
-    src.buffer = n; src.connect(g).connect(out); src.start(at);
-  }
-
-  function stopRadio() {
-    try { radio.source?.stop(); } catch {}
-    radio.source = null;
-    radio.el?.pause();
-  }
-
-  async function playRadio() {
-    stopRadio();
-    const ctx = radio.ctx;
-    if (!radio.bytes) return false;
-    if (ctx && !radio.buffer) {
-      try { radio.buffer = await new Promise((res, rej) => ctx.decodeAudioData(radio.bytes.slice(0), res, rej)); }
-      catch (err) { console.warn('[CTD] decode failed', err); }
-    }
-    if (ctx && radio.buffer) {
-      if (ctx.state === 'suspended') ctx.resume();
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 320;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 3300;
-      const pk = ctx.createBiquadFilter(); pk.type = 'peaking'; pk.frequency.value = 1700; pk.gain.value = 5;
-      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 6;
-      const out = ctx.createGain(); out.gain.value = 1.4;
-      hp.connect(lp).connect(pk).connect(comp).connect(out).connect(ctx.destination);
-      const t = ctx.currentTime + 0.05;
-      squelch(ctx, t, 0.12, out);
-      const src = ctx.createBufferSource();
-      src.buffer = radio.buffer; src.connect(hp); src.start(t + 0.1);
-      squelch(ctx, t + 0.12 + radio.buffer.duration, 0.18, out);
-      src.onended = () => { if (radio.source === src) setRadio('ready'); };
-      radio.source = src;
-      setRadio('playing');
-      return ctx.state === 'running';
-    }
-    if (!radio.el) {
-      radio.el = new Audio(URL.createObjectURL(new Blob([radio.bytes], { type: 'audio/mpeg' })));
-      radio.el.onended = () => setRadio('ready');
-    }
-    setRadio('playing');
-    return radio.el.play().then(() => true, () => { setRadio('ready'); return false; });
-  }
-
-  function resetRadio() {
-    stopRadio();
-    if (radio.el?.src) URL.revokeObjectURL(radio.el.src);
-    Object.assign(radio, { bytes: null, buffer: null, el: null, boardId: null });
-    setRadio('idle');
-  }
-
-  function setRadio(state) {
-    radio.state = state;
-    const label = {
-      idle: '', loading: 'Receiving<span class="scanning">_</span>', ready: 'On frequency',
-      playing: 'Transmitting<span class="scanning">_</span>', failed: 'Radio failure · read the strips', blocked: 'Tap to listen',
-    }[state] || '';
-    const canPlay = state === 'ready' || state === 'blocked' || state === 'playing';
-    els.towerActions.innerHTML =
-      `<button class="btn btn-ghost" id="replay" type="button" ${canPlay ? '' : 'disabled'}>${state === 'playing' ? '■ Stop' : '▶ ' + (state === 'blocked' ? 'Play' : 'Replay')}</button>` +
-      `<span class="status">${label}</span>`;
-    updateTx();
-  }
-
-  // --- TX indicator + stand-by chatter while the tower works out the board ---
-  let towerBusy = false;
-  let standbyTimer = null;
-  const STANDBY = ['Stand by...', 'Checking the sequence...', 'Traffic in sight...', 'Sequencing traffic...', 'Copy your intentions...', 'Clearing the runway...'];
-  function updateTx() { els.tx.classList.toggle('on', towerBusy || radio.state === 'playing'); }
-
-  function startStandby() {
-    let i = 0;
-    towerBusy = true;
-    els.board.classList.remove('hidden');
-    els.board.classList.add('loading');
-    els.board.setAttribute('aria-busy', 'true');
-    els.transmission.textContent = STANDBY[0];
-    clearInterval(standbyTimer);
-    standbyTimer = setInterval(() => { els.transmission.textContent = STANDBY[++i % STANDBY.length]; }, 2000);
-    updateTx();
-    els.board.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }
-
-  function stopStandby() {
-    clearInterval(standbyTimer);
-    standbyTimer = null;
-    towerBusy = false;
-    els.board.classList.remove('loading');
-    els.board.removeAttribute('aria-busy');
-    updateTx();
-  }
-
-  els.towerActions.addEventListener('click', (e) => {
-    if (!e.target.closest('#replay')) return;
-    unlockAudio();
-    if (radio.state === 'playing') { stopRadio(); setRadio('ready'); } else playRadio();
-  });
-
-  // One ElevenLabs call per board: the server caches the MP3 in Postgres after the first request.
-  async function loadVoice(b) {
-    resetRadio();
-    radio.boardId = b.id;
-    setRadio('loading');
-    try {
-      const r = await fetch('/api/voice', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner: OWNER, id: b.id }),
-      });
-      if (!r.ok) throw new Error(`voice HTTP ${r.status}`);
-      const bytes = await r.arrayBuffer();
-      if (radio.boardId !== b.id) return false; // board changed meanwhile
-      radio.bytes = bytes;
-      setRadio('ready');
-      return true;
-    } catch (err) {
-      console.warn('[CTD] voice failed', err);
-      if (radio.boardId === b.id) setRadio('failed');
-      return false;
-    }
-  }
-
-  // --- persistence (Neon via /api/boards) ---
-  let saveChain = Promise.resolve();
-  function onBoardChanged() {
-    if (!board?.id) return;
-    const payload = JSON.stringify({ owner: OWNER, id: board.id, flights: board.flights });
-    saveChain = saveChain.then(() =>
-      fetch('/api/boards', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: payload })
-        .then((r) => { if (!r.ok) throw new Error(`save HTTP ${r.status}`); })
-        .catch((err) => { console.warn('[CTD] save failed', err); showToast('Tower log offline · progress not saved'); })
-    );
-  }
-
-  async function onBoardCreated() {
-    if (await loadVoice(board)) {
-      const ok = await playRadio();
-      if (!ok) setRadio('blocked');
-    }
-  }
-
-  async function restore() {
-    try {
-      const r = await fetch(`/api/boards?owner=${encodeURIComponent(OWNER)}`, { cache: 'no-store' });
-      const data = await r.json();
-      if (r.ok && data.board) {
-        board = data.board;
-        render();
-        loadVoice(board); // cached audio; no autoplay on reload
-        return;
-      }
-    } catch (err) {
-      console.warn('[CTD] restore failed', err);
-    }
-    render();
-  }
-
-  // --- request clearance ---
-  els.request.addEventListener('click', async () => {
-    const text = els.dump.value.trim();
-    if (!text) { showError('Say intentions: brain-dump at least one task.'); return; }
-    unlockAudio();
-    showError('');
-    els.request.disabled = true;
-    els.request.innerHTML = 'Contacting tower<span class="scanning">_</span>';
-    startStandby();
-    try {
-      const r = await fetch('/api/clearance', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, owner: OWNER }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data.board) throw new Error(data.error || `Tower unavailable (HTTP ${r.status}).`);
-      stopStandby();
-      board = data.board;
-      render();
-      onBoardCreated();
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    } catch (err) {
-      stopStandby();
-      els.board.classList.add('hidden');
-      showError(err.message || 'Frequency congested, try again.');
-    } finally {
-      els.request.disabled = false;
-      els.request.textContent = 'Request clearance';
-    }
-  });
-
-  els.newBoard.addEventListener('click', () => {
-    resetRadio();
-    if (board?.id) {
-      fetch('/api/boards', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ owner: OWNER, id: board.id, archived: true }),
-      }).catch(() => {});
-    }
-    board = null;
-    els.dump.value = '';
-    els.count.textContent = '0/2000';
-    render();
-    els.dump.focus();
-  });
-
-  restore();
-})();
-</script>
+<script type="module" src="/app.js"></script>
 </body>
 </html>
