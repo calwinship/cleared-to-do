@@ -42,7 +42,18 @@ setInterval(tick, 5000);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const showError = (msg) => { els.error.textContent = msg; els.error.classList.toggle('hidden', !msg); };
 
-els.dump.addEventListener('input', () => { els.count.textContent = `${els.dump.value.length}/2000`; });
+els.dump.addEventListener('input', () => {
+  els.count.textContent = `${els.dump.value.length}/2000`;
+  // first input retires the example strips for good
+  if (els.dump.value.trim() && !store.get('ctd_typed')) { store.set('ctd_typed', '1'); $('ghosts').classList.add('hidden'); }
+});
+
+// --- first visit: example strips + guide ---
+function showGhosts() { $('ghosts').classList.toggle('hidden', !!store.get('ctd_typed') || !!els.dump.value.trim()); }
+const guide = $('guide');
+$('help').addEventListener('click', () => guide.showModal());
+$('guide-close').addEventListener('click', () => guide.close());
+guide.addEventListener('click', (e) => { if (e.target === guide) guide.close(); }); // tap the backdrop to close
 
 // --- toast (with optional Undo) ---
 let toastTimer = null;
@@ -135,6 +146,7 @@ export function render() {
     els.board.classList.add('hidden');
     els.intake.classList.remove('hidden');
     radar.setTasks({ seq: [], hold: [] });
+    showGhosts();
     return;
   }
   els.intake.classList.add('hidden');

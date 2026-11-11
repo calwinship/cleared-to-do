@@ -208,6 +208,26 @@
   .strip.racing { box-shadow: 0 0 0 2px #ff7a6b, 0 2px 10px rgba(255,90,74,.25); }
   .strip.beaten { box-shadow: 0 0 0 2px var(--stamp); }
   .strip .main { cursor: pointer; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 11px; letter-spacing: .06em; color: var(--ink-dim); text-transform: uppercase; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .legend .l-seq i { background: var(--paper-seq); }
+  .legend .l-hold i { background: var(--paper-hold); }
+  .legend .l-landed i { background: #8b9a8f; }
+  .prompt { margin: 18px 0 10px; font-size: 18px; font-weight: 600; color: #e8f1eb; letter-spacing: .02em; }
+  .ghosts { margin-top: 16px; }
+  .ghosts .rack { opacity: .45; }
+  .ghosts .strip { pointer-events: none; }
+  .help { appearance: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--rail-hi); background: transparent; color: var(--ink); font: 700 16px var(--mono); cursor: pointer; margin-left: 10px; }
+  .help:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
+  .head-right { display: flex; align-items: center; }
+  dialog.guide { max-width: min(520px, calc(100% - 32px)); max-height: calc(100dvh - 32px); border: 1px solid var(--rail-hi); border-radius: 8px; background: #0f1512; color: var(--ink); padding: 18px 18px 14px; font: 14px/1.5 var(--mono); }
+  dialog.guide::backdrop { background: rgba(0,0,0,.7); }
+  dialog.guide h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: .14em; color: #e8f1eb; }
+  dialog.guide ol { margin: 0; padding-left: 20px; }
+  dialog.guide li { margin: 6px 0; }
+  dialog.guide b { color: var(--phosphor); }
+  dialog.guide .row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; font-size: 12px; }
+  dialog.guide a { color: var(--ink-dim); }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .strip, .switch input, .switch input::after { transition: none; } .scanning, .tx.on::before { animation: none; } }
   @media (min-width: 900px) { .wrap { max-width: 600px; } }
@@ -221,7 +241,10 @@
       <h1>Cleared To Do</h1>
       <p>your tasks, cleared to land</p>
     </div>
-    <div class="clock"><b id="local-clock" aria-label="Local time">--:--</b><span id="zulu" aria-label="UTC time">--:--Z</span> · TWR</div>
+    <div class="head-right">
+      <div class="clock"><b id="local-clock" aria-label="Local time">--:--</b><span id="zulu" aria-label="UTC time">--:--Z</span> · TWR</div>
+      <button class="help" id="help" type="button" aria-label="How it works" aria-haspopup="dialog">?</button>
+    </div>
   </header>
 
   <section class="radar" aria-label="Radar">
@@ -230,15 +253,25 @@
       <span id="radar-credit">Connecting to traffic feed…</span>
       <button class="btn btn-ghost" id="range" type="button" aria-label="Change radar range">Range</button>
     </div>
+    <div class="legend" aria-label="Legend"><span class="l-seq"><i></i>Sequence = do now</span><span class="l-hold"><i></i>Holding = not today</span><span class="l-landed"><i></i>Landed = done</span></div>
   </section>
 
   <div id="boot" class="boot">Contacting tower<span class="scanning">_</span></div>
 
   <section id="intake" class="intake hidden">
+    <p class="prompt">Tell the tower what's on your plate.</p>
     <div class="label"><label for="dump">Brain dump · all traffic</label><span id="count">0/2000</span></div>
     <textarea id="dump" maxlength="2000" placeholder="laundry, call mum back, taxes at some point, reply to Sam's email before 5, maybe learn spanish, buy milk"></textarea>
     <button id="request" class="btn btn-primary" type="button">Request clearance</button>
     <div id="error" class="err hidden" role="alert"></div>
+    <div id="ghosts" class="ghosts hidden" aria-hidden="true">
+      <div class="bay-head"><h2>EXAMPLE</h2><span>disappears when you type</span></div>
+      <div class="rack">
+        <article class="strip seq cleared"><div class="no"><b>01</b><small>CLRD</small></div><div class="main"><div class="cs">INVOICE 42</div><div class="task">Send the March invoice</div><div class="meta"><span>EST 0:15</span></div></div><div class="act"><span class="land">Start</span></div></article>
+        <article class="strip seq"><div class="no"><b>02</b><small>SEQ</small></div><div class="main"><div class="cs">MILK 27</div><div class="task">Buy milk on the way home</div><div class="meta"><span>EST 0:10</span></div></div><div class="act"><span class="land">Landed</span></div></article>
+        <article class="strip hold"><div class="no"><b>H1</b><small>HOLD</small></div><div class="main"><div class="cs">SPANISH 63</div><div class="task">Learn Spanish</div><div class="meta"><span>EST 1:00</span><span class="note">expect further clearance</span></div></div><div class="act"><span class="land">Clear</span></div></article>
+      </div>
+    </div>
   </section>
 
   <section id="board" class="hidden" aria-live="polite">
@@ -272,6 +305,18 @@
     </div>
   </section>
   <div id="toast" class="toast hidden" role="status"></div>
+  <dialog class="guide" id="guide" aria-labelledby="guide-title">
+    <h2 id="guide-title">HOW IT WORKS</h2>
+    <ol>
+      <li><b>Tell the tower</b> everything on your plate, messy is fine. Tap Request clearance.</li>
+      <li>The tower files each task as a strip. <b>Sequence</b> = do now, in order. <b>Holding</b> = not today. <b>Landed</b> = done.</li>
+      <li>On a strip: <b>Landed</b> when it's done (5 s to undo), <b>Hold</b> or <b>Clear</b> to move it, <b>✕</b> to delete it.</li>
+      <li><b>Start</b> the cleared task to race a real plane landing at Dublin right now. Finish before it touches down. If it lands first: go around (race the next one) or call it landed.</li>
+      <li>The <b>radar</b> shows real traffic around Dublin (dim) and your tasks (bright). <b>SIM</b> means simulated traffic.</li>
+      <li><b>Read back</b> reads the tower's call aloud with your device's voice. Off by default.</li>
+    </ol>
+    <div class="row"><a href="/privacy.html">Privacy &amp; delete my data</a><button class="btn btn-ghost" id="guide-close" type="button">Got it</button></div>
+  </dialog>
 </div>
 <script type="module" src="/app.js"></script>
 </body>
