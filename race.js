@@ -1,6 +1,6 @@
 // "Race a real plane": pair the cleared task with an inbound aircraft and keep that pairing honest.
-import { choosePair, etaMs, isArrival, touchedDown, lostLowNearField } from './shared/arrivals.js';
-import { destination } from './shared/eidw.js';
+import { choosePair, etaMs, touchedDown, lostLowNearField } from './shared/arrivals.js';
+import { destination, distNm, ARP } from './shared/eidw.js';
 
 const SIM_GS = 150;
 const REPAIR_AFTER_MISSING_MS = 60000;
@@ -56,7 +56,13 @@ export function tickRace(race, aircraft, landing, mem, now = Date.now()) {
     mem.lastSeen = now;
     mem.last = a;
     if (touchedDown(a)) return landed(race, aircraft, landing, now, exclude);
-    if (!isArrival(a, landing) && !(a.alt < 3000)) {
+    // Turned away = climbing, or clearly opening the distance without descending. Downwind/base legs
+    // point away from the field but keep descending, so they don't count.
+    const d = distNm(a, ARP);
+    mem.minDist = Math.min(mem.minDist ?? d, d);
+    const vs = a.vs ?? 0;
+    const away = vs > 400 || d > 60 || (d > mem.minDist + 6 && vs > -200);
+    if (away) {
       mem.awaySince ??= now;
       if (now - mem.awaySince > REPAIR_AFTER_TURNAWAY_MS) return repair(race, aircraft, landing, now, exclude, mem);
     } else mem.awaySince = null;
@@ -76,7 +82,7 @@ export function tickRace(race, aircraft, landing, mem, now = Date.now()) {
 }
 
 function repair(race, aircraft, landing, now, exclude, mem) {
-  mem.lastSeen = null; mem.last = null; mem.awaySince = null;
+  mem.lastSeen = null; mem.last = null; mem.awaySince = null; mem.minDist = null;
   return { race: pair({ ...race, used: [...exclude] }, aircraft, landing, now, exclude), event: 'repaired' };
 }
 

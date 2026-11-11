@@ -21,7 +21,7 @@ export function likelyThreshold(a, landing) {
 // Inbound to Dublin: airborne, low/descending, heading for the field (or lined up on an approach).
 export function isArrival(a, landing) {
   if (a.ground || a.alt == null || a.alt <= 0 || a.gs == null || a.track == null) return false;
-  if (a.gs < 90 || a.gs > 480) return false; // helicopters, light GA circuits, cruisers
+  if (a.gs < 110 || a.gs > 480) return false; // helicopters, survey/police loiterers, cruisers
   const d = distNm(a, ARP);
   if (d > 60 || d < 0.8) return false;
   const vs = a.vs ?? 0;
@@ -31,6 +31,9 @@ export function isArrival(a, landing) {
   // altitude band shrinks as aircraft get closer: ~3° profile with generous margins (pressure altitude)
   const maxAlt = Math.max(3000, d * 450 + 3000);
   if (a.alt > maxAlt || a.alt > 16000) return false;
+  // ...and not far below a glide path: low loiterers (police, survey, circuits away from the field) are not arrivals.
+  // ~200 ft/nm under a 3° (318 ft/nm) path, with 600 ft slack for pressure altitude.
+  if (a.alt + 600 < distNm(a, t) * 200) return false;
   if (onFinal) return vs < 300;
   return towardsField && (vs < -250 || a.alt < 6000) && vs < 500;
 }
