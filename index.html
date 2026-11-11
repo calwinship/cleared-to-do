@@ -16,7 +16,7 @@
     --bay: #141a17;
     --rail: #232c27;
     --rail-hi: #2f3a34;
-    --ink-dim: #7d8c83;
+    --ink-dim: #a3b2a8;
     --ink: #c9d6cd;
     --phosphor: #8df0a8;
     --amber: #f2c14e;
@@ -25,9 +25,9 @@
     --paper-hold: #efe3a0;
     --paper-hold-edge: #d8c873;
     --paper-ink: #1c261f;
-    --paper-ink-dim: #4c5a50;
+    --paper-ink-dim: #36423a;
     --paper-rule: rgba(28, 38, 31, .22);
-    --stamp: #b3261e;
+    --stamp: #9c1f18;
     --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
@@ -59,7 +59,7 @@
     padding: 12px; font: 15px/1.5 var(--mono);
     caret-color: var(--phosphor);
   }
-  textarea::placeholder { color: #4d6155; }
+  textarea::placeholder { color: #7f9488; }
   textarea:focus { outline: 2px solid #3f7d55; outline-offset: 1px; }
   .btn {
     appearance: none; border: 0; cursor: pointer; font: 600 14px var(--mono); letter-spacing: .12em; text-transform: uppercase;
@@ -67,7 +67,7 @@
   }
   .btn-primary { width: 100%; margin-top: 10px; background: var(--phosphor); color: #06200f; }
   .btn-primary:active { transform: translateY(1px); }
-  .btn-primary[disabled] { background: #2d4436; color: #8aa594; cursor: progress; }
+  .btn-primary[disabled] { background: #2d4436; color: #b8cdbf; cursor: progress; }
   .btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--rail-hi); padding: 10px 12px; min-height: 40px; font-size: 12px; }
   .err { margin-top: 10px; padding: 10px 12px; border: 1px solid #6b2a24; background: #2a1513; color: #ffb4a8; border-radius: 6px; font-size: 13px; }
 
@@ -75,9 +75,9 @@
   .tower { margin-top: 18px; border: 1px solid var(--rail-hi); border-radius: 6px; background: #0f1512; padding: 12px; }
   .tower .label { margin-bottom: 8px; }
   .tower .freq { color: var(--amber); }
-  .tower blockquote { margin: 0; color: var(--phosphor); font-size: 14px; line-height: 1.55; }
+  .tower blockquote { margin: 0; color: var(--phosphor); font-size: 17.5px; line-height: 1.55; }
   .tower-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
-  .btn-ghost[disabled] { opacity: .45; cursor: default; }
+  .btn-ghost[disabled] { color: var(--ink-dim); border-color: var(--rail); cursor: default; }
   .tower-actions .status { font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; text-transform: uppercase; }
   .tx { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; }
   .tx::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--rail-hi); }
@@ -124,7 +124,7 @@
   .strip.cleared .no small { color: #1d6b34; font-weight: 700; }
   .strip.promoted .no small { color: #1d6b34; }
 
-  .strip.landed { opacity: .55; }
+  .strip.landed { opacity: .8; }
   .strip.landed .cs, .strip.landed .task { text-decoration: line-through; text-decoration-thickness: 2px; }
   .strip.landed .act { visibility: hidden; }
   .strip.landed::after {
