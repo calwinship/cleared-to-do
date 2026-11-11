@@ -1,0 +1,11 @@
+.env
+.env.*
+.projects
+.claude
+.agents
+.cursor
+.cursorignore
+AGENTS.md
+CLAUDE.md
+scripts
+node_modules

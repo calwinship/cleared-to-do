@@ -1,0 +1,13 @@
+{
+  "name": "cleared-to-do",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cleared To Do — your tasks, cleared to land",
+  "engines": {
+    "node": "26.x"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "1.2.0"
+  }
+}
