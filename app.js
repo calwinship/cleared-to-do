@@ -134,7 +134,53 @@ function render() {
   const toRadar = (f) => ({ id: f.id, task: f.task, label: labelOf(f) });
   radar.setTasks({ seq: seq.map(toRadar), hold: hold.map(toRadar) });
   radar.select(selectedId);
+  placeTraffic();
 }
+
+// --- live arrivals in the sequence: small grey rows slotted in by time ---
+// "By time" = if you started your tasks now: an aircraft ~7 min out goes after a task that starts before then.
+let arrivals = [];
+let pickedHex = null;
+const showTrafficBox = $('show-traffic');
+showTrafficBox.checked = store.get('ctd_traffic') !== '0';
+showTrafficBox.addEventListener('change', () => { store.set('ctd_traffic', showTrafficBox.checked ? '1' : '0'); placeTraffic(); });
+
+function trafficRowHTML(a) {
+  const cs = esc(a.sim && !/^SIM/.test(a.callsign) ? `SIM ${a.callsign}` : a.callsign);
+  const alt = a.alt >= 10000 ? `FL${Math.round(a.alt / 100)}` : `${a.alt.toLocaleString('en-GB')} ft`;
+  const sum = [a.type, alt, `${a.dist} nm`].filter(Boolean).join(' · ');
+  return `<li class="traffic-row${a.hex === pickedHex ? ' picked' : ''}" data-hex="${esc(a.hex)}"><button type="button" data-hex="${esc(a.hex)}" aria-label="${cs}, ${esc(sum)}, ${a.eta < 1 ? 'landing now' : `about ${a.eta} minutes from landing`}. Show on radar"><span class="ac-cs">${cs}</span><span class="ac-sum">${esc(sum)}</span><span class="ac-eta">${a.eta < 1 ? 'landing' : `~${a.eta} min`}</span></button></li>`;
+}
+
+function placeTraffic() {
+  if (drag) return; // never shuffle rows under a finger
+  for (const r of document.querySelectorAll('.traffic-row')) r.remove();
+  if (!board || !showTrafficBox.checked || !arrivals.length) return;
+  const strips = [...els.seq.querySelectorAll(':scope > .strip')];
+  const starts = [];
+  let t = 0;
+  for (const li of strips) { starts.push(t); t += find(li.dataset.id)?.minutes || 0; }
+  for (const a of [...arrivals].reverse()) { // reverse + insert-after keeps the soonest first within a gap
+    let j = -1;
+    for (let k = 0; k < strips.length; k++) if (starts[k] <= a.eta) j = k;
+    const anchor = j >= 0 ? strips[j] : els.seq.firstElementChild;
+    const tmp = document.createElement('template');
+    tmp.innerHTML = trafficRowHTML(a);
+    if (anchor) anchor.after(tmp.content.firstElementChild); else els.seq.append(tmp.content.firstElementChild);
+  }
+}
+
+function pickAircraft(hex, { fromRadar = false } = {}) {
+  pickedHex = !fromRadar && pickedHex === hex ? null : hex;
+  radar.selectAircraft(pickedHex);
+  for (const r of document.querySelectorAll('.traffic-row')) r.classList.toggle('picked', r.dataset.hex === pickedHex);
+  const row = pickedHex && document.querySelector(`.traffic-row[data-hex="${CSS.escape(pickedHex)}"]`);
+  if (fromRadar && row) row.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.traffic-row button');
+  if (b) pickAircraft(b.dataset.hex);
+});
 
 // --- radar <-> list ---
 function jumpTo(id) {
@@ -151,6 +197,9 @@ function jumpTo(id) {
 }
 const radar = createRadar($('scope'), {
   onSelectTask: jumpTo,
+  onArrivals: (list) => { arrivals = list; if (pickedHex && !list.some((a) => a.hex === pickedHex)) radar.selectAircraft(pickedHex); placeTraffic(); },
+  onSelectAircraft: (hex) => pickAircraft(hex, { fromRadar: true }),
+  onRange: (r) => { $('range').textContent = `${r} nm`; },
   onStatus: (t) => {
     const credit = $('radar-credit');
     if (t.sim) credit.textContent = 'Background traffic: SIM (live feed unavailable)';

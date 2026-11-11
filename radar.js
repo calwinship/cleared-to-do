@@ -21,7 +21,7 @@ const el = (tag, attrs = {}, parent) => {
   return n;
 };
 
-export function createRadar(container, { onSelectTask, onStatus } = {}) {
+export function createRadar(container, { onSelectTask, onStatus, onArrivals, onSelectAircraft, onRange } = {}) {
   let range = 20;
   try { const r = +localStorage.getItem('ctd_range'); if (RANGES.includes(r)) range = r; } catch {}
   let scale = R / range;
@@ -34,7 +34,7 @@ export function createRadar(container, { onSelectTask, onStatus } = {}) {
   el('circle', { cx: C, cy: C, r: R, class: 'scope-bg' }, svg);
   const world = el('g', { 'clip-path': 'url(#scope-clip)' }, svg);
   const gStatic = el('g', {}, world);
-  const gTraffic = el('g', { class: 'traffic', 'aria-hidden': 'true' }, world);
+  const gTraffic = el('g', { class: 'traffic', 'aria-hidden': 'true' }, world); // keyboard users pick aircraft from the list instead
   const gTaskBg = el('g', { 'aria-hidden': 'true' }, world);
   const gTasks = el('g', { class: 'tasks' }, svg); // unclipped so labels near the rim stay readable
   const badge = el('text', { x: 30, y: 50, class: 'badge' }, svg);
@@ -42,6 +42,7 @@ export function createRadar(container, { onSelectTask, onStatus } = {}) {
   let traffic = { aircraft: [], sim: true, attribution: null };
   let tasks = { seq: [], hold: [] };
   let selected = null;
+  let picked = null; // selected aircraft hex
   let landing = RUNWAYS[1].thresholds[1]; // 28L until the traffic says otherwise
   const nodes = new Map();
 
@@ -188,6 +189,28 @@ export function createRadar(container, { onSelectTask, onStatus } = {}) {
     if (!sim) chooseRunway(traffic.aircraft);
     badge.textContent = sim ? 'SIM TRAFFIC' : '';
     onStatus?.(traffic);
+    onArrivals?.(arrivals(Date.now()));
+  }
+
+  // Aircraft inbound to Dublin, soonest first, with a rough time to touchdown (for the list).
+  // Rough on purpose: straight to an 8 nm final, speed tapering to ~140 kt.
+  function arrivals(now) {
+    const list = traffic.sim ? simAircraft(now) : traffic.aircraft.map((a) => extrapolate(a, now));
+    const out = [];
+    for (const a of list) {
+      if (a.gs == null || a.track == null || a.gs < 110 || a.gs > 480) continue;
+      // lined up on any runway end? (parallel runways and crosswind 16/34 are in use too)
+      const fin = RUNWAYS.flatMap((r) => r.thresholds).find((t) => distNm(a, t) < 14 && angleDiff(a.track, t.brg) < 20 && angleDiff(bearing(a, t), t.brg) < 25);
+      const thr = fin || landing;
+      const dArp = distNm(a, ARP), dThr = distNm(a, thr), vs = a.vs ?? 0;
+      if (dArp > 60 || a.alt > 16000 || a.alt > dArp * 450 + 3000 || a.alt + 600 < dThr * 200 || vs > 500) continue;
+      const towards = angleDiff(a.track, bearing(a, ARP)) < 60;
+      if (!fin && !(towards && (vs < -250 || a.alt < 6000))) continue;
+      const path = fin ? dThr : distNm(a, destination(thr, (thr.brg + 180) % 360, 8)) + 8;
+      const eta = (path / ((Math.min(a.gs, 320) + 140) / 2)) * 60;
+      out.push({ hex: a.hex, callsign: a.callsign || a.hex, type: a.type || null, alt: Math.round(a.alt), dist: Math.round(dArp), eta: Math.round(eta), sim: !!traffic.sim });
+    }
+    return out.sort((x, y) => x.eta - y.eta).slice(0, 6);
   }
 
   // Landing direction from low, aligned inbound traffic (needs two to switch).
@@ -229,7 +252,10 @@ export function createRadar(container, { onSelectTask, onStatus } = {}) {
       let n = nodes.get(a.hex);
       if (!n) {
         const g = el('g', { class: `ac${traffic.sim ? ' sim' : ''}` }, gTraffic);
-        n = { g, vec: el('line', { class: 'vec' }, g), blip: el('rect', { x: -5, y: -5, width: 10, height: 10, class: 'blip' }, g) }; // no labels: background traffic stays in the background
+        n = { g, vec: el('line', { class: 'vec' }, g), blip: el('rect', { x: -5, y: -5, width: 10, height: 10, class: 'blip' }, g), label: null };
+        el('rect', { x: -22, y: -22, width: 44, height: 44, class: 'hit' }, g);
+        const hex = a.hex;
+        g.addEventListener('click', () => onSelectAircraft?.(hex));
         nodes.set(a.hex, n);
       }
       const p = project(a);
@@ -242,7 +268,13 @@ export function createRadar(container, { onSelectTask, onStatus } = {}) {
       const len = ((a.gs || 0) / 60) * scale, tr = ((a.track || 0) * Math.PI) / 180;
       n.vec.setAttribute('x2', (Math.sin(tr) * len).toFixed(1));
       n.vec.setAttribute('y2', (-Math.cos(tr) * len).toFixed(1));
-      
+      // only the picked aircraft gets a label; the rest stay quiet in the background
+      const isPicked = a.hex === picked;
+      n.g.classList.toggle('picked', isPicked);
+      if (isPicked) {
+        n.label ??= el('text', { x: 16, y: -12, class: 'ac-label' }, n.g);
+        n.label.textContent = `${a.callsign || a.hex} ${String(Math.round((a.alt || 0) / 100)).padStart(3, '0')}`;
+      } else if (n.label) { n.label.remove(); n.label = null; }
     }
     for (const [hex, n] of nodes) if (!seen.has(hex)) { n.g.remove(); nodes.delete(hex); }
   }
@@ -273,6 +305,20 @@ export function createRadar(container, { onSelectTask, onStatus } = {}) {
     start() { drawStatic(); requestAnimationFrame(frame); poll(); },
     setTasks(next) { tasks = next; layoutTasks(); },
     select(id) { selected = id; drawTasks(); },
+    selectAircraft(hex) {
+      picked = hex;
+      // zoom out if the picked aircraft is off the scope
+      const a = hex && (traffic.sim ? simAircraft(Date.now()) : traffic.aircraft).find((x) => x.hex === hex);
+      if (a) {
+        const need = RANGES.find((r) => r >= distNm(a, ARP) + 3) || RANGES.at(-1);
+        if (need > range) {
+          range = need;
+          for (const n of nodes.values()) { n.off = null; n.disp = null; }
+          drawStatic();
+          onRange?.(range);
+        }
+      }
+    },
     cycleRange() {
       range = RANGES[(RANGES.indexOf(range) + 1) % RANGES.length];
       try { localStorage.setItem('ctd_range', String(range)); } catch {}

@@ -70,6 +70,12 @@
   .scope .ac .ac-label { fill: #6f9a7c; font: 20px var(--mono); }
   .scope .ac.sim .blip, .scope .ac.sim .vec { stroke: #8a7535; }
   .scope .ac.sim .ac-label { fill: #8a7535; }
+  .scope .ac { cursor: pointer; }
+  .scope .ac .hit { fill: transparent; }
+  .scope .ac.picked { opacity: 1; }
+  .scope .ac.picked .blip { stroke: #fff; stroke-width: 4; }
+  .scope .ac.picked .vec { stroke: #cfd8d2; }
+  .scope .ac.picked .ac-label { fill: #fff; font: 600 30px var(--mono); paint-order: stroke; stroke: #08110c; stroke-width: 8px; }
   .scope .task { cursor: pointer; outline: none; }
   .scope .task .hit { fill: transparent; }
   .scope .task .tblip { fill: var(--phosphor); stroke: #08110c; stroke-width: 3; }
@@ -136,6 +142,19 @@
   .strip.dragging { opacity: .95; box-shadow: 0 10px 28px rgba(0,0,0,.6); z-index: 20; pointer-events: none; }
   .placeholder { min-height: 58px; border: 2px dashed var(--rail-hi); border-radius: 4px; list-style: none; }
 
+  /* Live arrivals, slotted into the sequence by time: small, grey, read-only */
+  .traffic-row { list-style: none; }
+  .traffic-row button { appearance: none; width: 100%; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 10px 4px 14px; border: 1px dashed #2c3a32; border-radius: 4px; background: transparent; color: #7f9488; font: 12px var(--mono); text-align: left; cursor: pointer; }
+  .traffic-row button:hover { border-color: #3d5a47; color: var(--ink-dim); }
+  .traffic-row button:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+  .traffic-row .ac-cs { color: var(--ink-dim); font-weight: 600; min-width: 7ch; }
+  .traffic-row .ac-sum { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .traffic-row .ac-eta { flex: none; }
+  .traffic-row.picked button { border: 1px solid #cfd8d2; color: var(--ink); }
+  .traffic-row.picked .ac-cs { color: #fff; }
+  .switch-sm { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-dim); cursor: pointer; min-height: 40px; }
+  .switch-sm input { accent-color: var(--phosphor); width: 16px; height: 16px; margin: 0; }
+
   /* Inline editor */
   .edit { grid-column: 1 / -1; display: grid; gap: 10px; padding: 4px 10px 12px 10px; border-top: 1px solid var(--paper-rule); }
   .edit input[type=text] { width: 100%; font: 600 15px var(--mono); padding: 9px 10px; border-radius: 4px; border: 1px solid var(--paper-rule); background: #fff; color: var(--paper-ink); }
@@ -196,6 +215,7 @@
       <div id="scope"></div>
       <div class="radar-bar">
         <span id="radar-credit">Connecting to traffic…</span>
+        <label class="switch-sm"><input type="checkbox" id="show-traffic"> Arrivals in list</label>
         <button class="btn btn-ghost" id="range" type="button" aria-label="Change radar range">Zoom</button>
       </div>
     </section>
