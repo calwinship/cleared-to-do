@@ -228,6 +228,8 @@
   dialog.guide b { color: var(--phosphor); }
   dialog.guide .row { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; font-size: 12px; }
   dialog.guide a { color: var(--ink-dim); }
+  .foot { margin-top: 28px; font-size: 12px; color: var(--ink-dim); text-align: center; }
+  .foot a { color: var(--ink-dim); }
   .hidden { display: none !important; }
   @media (prefers-reduced-motion: reduce) { .strip, .switch input, .switch input::after { transition: none; } .scanning, .tx.on::before { animation: none; } }
   @media (min-width: 900px) { .wrap { max-width: 600px; } }
@@ -304,6 +306,7 @@
       <button class="btn btn-ghost" id="new-board" type="button">New board</button>
     </div>
   </section>
+  <footer class="foot"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#delete">Delete my data</a></footer>
   <div id="toast" class="toast hidden" role="status"></div>
   <dialog class="guide" id="guide" aria-labelledby="guide-title">
     <h2 id="guide-title">HOW IT WORKS</h2>

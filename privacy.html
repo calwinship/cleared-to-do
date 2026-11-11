@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f0d">
+<title>Privacy · Cleared To Do</title>
+<style>
+  :root { --bg: #0b0f0d; --ink: #c9d6cd; --ink-dim: #a3b2a8; --phosphor: #8df0a8; --rail-hi: #2f3a34; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body { font: 15px/1.6 var(--mono); }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 20px 16px 48px; }
+  h1 { font-size: 20px; letter-spacing: .08em; text-transform: uppercase; color: #e8f1eb; margin: 8px 0 4px; }
+  h2 { font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: #e8f1eb; margin: 28px 0 6px; }
+  p, li { color: var(--ink); }
+  ul { padding-left: 20px; }
+  a { color: var(--phosphor); }
+  .dim { color: var(--ink-dim); font-size: 13px; }
+  .danger { margin-top: 10px; padding: 14px; border: 1px solid #6b2a24; border-radius: 6px; background: #1d0f0d; }
+  button { appearance: none; cursor: pointer; font: 700 13px var(--mono); letter-spacing: .12em; text-transform: uppercase; border-radius: 6px; padding: 12px 16px; min-height: 44px; border: 1px solid #ff7a6b; background: transparent; color: #ffb4a8; }
+  button.confirm { background: #b3261e; color: #fff; border-color: #b3261e; }
+  button[disabled] { opacity: .6; cursor: progress; }
+  #result { margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p><a href="/">← Back to the tower</a></p>
+  <h1>Privacy</h1>
+  <p class="dim">Plain English, short. Last updated 11 November 2026.</p>
+
+  <h2>No account, no tracking</h2>
+  <p>You don't sign up. Your browser makes up a random device ID the first time you visit, and your boards are filed under it. There are no cookies, no analytics and no ads.</p>
+
+  <h2>What we store</h2>
+  <ul>
+    <li><b>Your boards:</b> the text you type, the tasks the tower makes from it, and what you do with them (landed, held, deleted, races). Old boards are kept when you start a new one, until you delete your data.</li>
+    <li><b>Rate-limit counters:</b> how many requests came from your device ID and your IP address in the last few minutes. They expire within about a day.</li>
+    <li><b>In your browser:</b> your device ID and a few settings (read back on or off, radar range, whether you've seen the examples).</li>
+  </ul>
+  <p>The database is run by Neon in the United States (AWS, Ohio). The app runs on Vercel, which keeps short-lived request logs that include IP addresses.</p>
+
+  <h2>Who else sees what</h2>
+  <ul>
+    <li><b>OpenRouter</b> and the AI model provider it routes to receive the text you type, so they can turn it into strips. We currently use free models; free model providers may log prompts or use them to improve their models. Don't type anything you wouldn't want a third party to see.</li>
+    <li><b>Google Fonts</b> serves the typeface, so Google sees your IP address when the page loads.</li>
+    <li><b>Read back</b> uses your own device's speech. Some browsers use online voices (for example Chrome's “Google” voices), which send the text to that company.</li>
+    <li><b>adsb.lol</b> supplies the aircraft on the radar. We fetch that public data from our server; nothing about you is sent to them.</li>
+  </ul>
+
+  <h2 id="delete">Delete my data</h2>
+  <div class="danger">
+    <p>This removes every board and counter stored for this device, then gives this browser a fresh device ID. It can't be undone.</p>
+    <p class="dim">Text already sent to OpenRouter can't be recalled. Vercel's request logs and the database's short-term restore history expire on their own.</p>
+    <button id="erase" type="button">Delete my data</button>
+    <div id="result" role="status"></div>
+  </div>
+
+  <h2>Contact</h2>
+  <p class="dim">[Contact address to be added before launch.]</p>
+</div>
+<script>
+(() => {
+  const btn = document.getElementById('erase');
+  const out = document.getElementById('result');
+  const get = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  let armed = false, timer;
+  btn.addEventListener('click', async () => {
+    if (!armed) {
+      armed = true;
+      btn.classList.add('confirm');
+      btn.textContent = 'Tap again to delete everything';
+      timer = setTimeout(() => { armed = false; btn.classList.remove('confirm'); btn.textContent = 'Delete my data'; }, 6000);
+      return;
+    }
+    clearTimeout(timer);
+    btn.disabled = true;
+    btn.textContent = 'Deleting…';
+    const owner = get('ctd_owner');
+    try {
+      let boards = 0;
+      if (owner) {
+        const r = await fetch('/api/me', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+        boards = d.boards || 0;
+      }
+      try { for (const k of Object.keys(localStorage)) if (k.startsWith('ctd_')) localStorage.removeItem(k); } catch {}
+      out.textContent = `Done. Deleted ${boards} board${boards === 1 ? '' : 's'} and cleared this browser. You'll get a fresh device ID next time you open the tower.`;
+      btn.textContent = 'Deleted';
+    } catch (err) {
+      out.textContent = `Couldn't delete: ${err.message}. Nothing was removed from this browser; please try again.`;
+      btn.disabled = false;
+      btn.classList.remove('confirm');
+      btn.textContent = 'Delete my data';
+      armed = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
