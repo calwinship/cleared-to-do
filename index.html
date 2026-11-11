@@ -79,6 +79,12 @@
   .tower-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; flex-wrap: wrap; }
   .btn-ghost[disabled] { opacity: .45; cursor: default; }
   .tower-actions .status { font-size: 11px; color: var(--ink-dim); letter-spacing: .08em; text-transform: uppercase; }
+  .tx { display: inline-flex; align-items: center; gap: 6px; margin-right: 8px; }
+  .tx::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--rail-hi); }
+  .tx.on { color: #ff7a6b; }
+  .tx.on::before { background: #ff5a4a; box-shadow: 0 0 6px #ff5a4a; animation: txpulse 1s ease-in-out infinite; }
+  @keyframes txpulse { 50% { opacity: .3; box-shadow: none; } }
+  #board.loading > :not(.tower), #board.loading .tower-actions { display: none; }
 
   /* Strip bays */
   .bay { margin-top: 20px; }
@@ -146,7 +152,7 @@
     font-size: 12px; letter-spacing: .04em; max-width: calc(100% - 32px);
   }
   .hidden { display: none !important; }
-  @media (prefers-reduced-motion: reduce) { .strip { transition: none; } .scanning { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .strip { transition: none; } .scanning, .tx.on::before { animation: none; } }
   @media (min-width: 480px) { .strip { grid-template-columns: 52px 1fr auto; } .strip .cs { font-size: 18px; } }
 </style>
 </head>
@@ -171,7 +177,7 @@
 
   <section id="board" class="hidden" aria-live="polite">
     <div class="tower">
-      <div class="label"><span>Tower transmission</span><span class="freq">118.300</span></div>
+      <div class="label"><span><span class="tx" id="tx" aria-hidden="true">TX</span>Tower transmission</span><span class="freq">118.300</span></div>
       <blockquote id="transmission"></blockquote>
       <div class="tower-actions" id="tower-actions"></div>
     </div>
@@ -204,7 +210,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     intake: $('intake'), dump: $('dump'), count: $('count'), request: $('request'), error: $('error'),
-    board: $('board'), transmission: $('transmission'), towerActions: $('tower-actions'),
+    board: $('board'), transmission: $('transmission'), towerActions: $('tower-actions'), tx: $('tx'),
     seq: $('seq'), hold: $('hold'), landed: $('landed'), landedBay: $('landed-bay'), landedSummary: $('landed-summary'),
     seqMeta: $('seq-meta'), holdMeta: $('hold-meta'), stamp: $('stamp'), newBoard: $('new-board'),
   };
@@ -411,6 +417,35 @@
     els.towerActions.innerHTML =
       `<button class="btn btn-ghost" id="replay" type="button" ${canPlay ? '' : 'disabled'}>${state === 'playing' ? '■ Stop' : '▶ ' + (state === 'blocked' ? 'Play' : 'Replay')}</button>` +
       `<span class="status">${label}</span>`;
+    updateTx();
+  }
+
+  // --- TX indicator + stand-by chatter while the tower works out the board ---
+  let towerBusy = false;
+  let standbyTimer = null;
+  const STANDBY = ['Stand by...', 'Checking the sequence...', 'Traffic in sight...', 'Sequencing traffic...', 'Copy your intentions...', 'Clearing the runway...'];
+  function updateTx() { els.tx.classList.toggle('on', towerBusy || radio.state === 'playing'); }
+
+  function startStandby() {
+    let i = 0;
+    towerBusy = true;
+    els.board.classList.remove('hidden');
+    els.board.classList.add('loading');
+    els.board.setAttribute('aria-busy', 'true');
+    els.transmission.textContent = STANDBY[0];
+    clearInterval(standbyTimer);
+    standbyTimer = setInterval(() => { els.transmission.textContent = STANDBY[++i % STANDBY.length]; }, 2000);
+    updateTx();
+    els.board.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
+
+  function stopStandby() {
+    clearInterval(standbyTimer);
+    standbyTimer = null;
+    towerBusy = false;
+    els.board.classList.remove('loading');
+    els.board.removeAttribute('aria-busy');
+    updateTx();
   }
 
   els.towerActions.addEventListener('click', (e) => {
@@ -484,17 +519,21 @@
     showError('');
     els.request.disabled = true;
     els.request.innerHTML = 'Contacting tower<span class="scanning">_</span>';
+    startStandby();
     try {
       const r = await fetch('/api/clearance', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, owner: OWNER }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.board) throw new Error(data.error || `Tower unavailable (HTTP ${r.status}).`);
+      stopStandby();
       board = data.board;
       render();
       onBoardCreated();
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
+      stopStandby();
+      els.board.classList.add('hidden');
       showError(err.message || 'Frequency congested, try again.');
     } finally {
       els.request.disabled = false;
