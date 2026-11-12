@@ -26,6 +26,19 @@ if (!UUID.test(OWNER || '')) { OWNER = crypto.randomUUID(); store.set('ctd_owner
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hmm = (mins) => `${Math.floor(mins / 60)}:${String(Math.round(mins % 60)).padStart(2, '0')}`;
 const say = (msg) => { els.announce.textContent = msg; };
+
+// --- focus timer (one task at a time) ---
+const elapsed = (f) => (f.timer ? f.timer.accMs + (f.timer.pausedAt ? 0 : Date.now() - Date.parse(f.timer.startedAt)) : 0);
+const remaining = (f) => f.minutes * 60000 - elapsed(f);
+function clock(ms) {
+  const s = Math.max(0, Math.round(Math.abs(ms) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
+}
+const timerText = (f) => {
+  const r = remaining(f);
+  return r >= 0 ? `${f.timer.pausedAt ? '▶' : '⏸'} ${clock(r)}` : `+${clock(r)} over`;
+};
 const showError = (msg) => { els.error.textContent = msg; els.error.classList.toggle('hidden', !msg); };
 
 // one-word radar label, same rule as the server
@@ -79,7 +92,14 @@ function stripHTML(f, num, { first = false } = {}) {
   const lane = f.landed ? 'landed' : f.lane === 'hold' ? 'hold' : 'seq';
   const id = esc(f.id), title = esc(f.task);
   const editing = f.id === editingId && !f.landed;
-  const cls = ['strip', lane, first && 'first', f.id === selectedId && 'selected', editing && 'editing'].filter(Boolean).join(' ');
+  const due = f.timer && !f.landed && remaining(f) < 0;
+  const cls = ['strip', lane, first && 'first', f.id === selectedId && 'selected', editing && 'editing', due && 'due'].filter(Boolean).join(' ');
+  let timerBit = '';
+  if (f.timer && !f.landed) {
+    timerBit = `<button class="timerbtn${f.timer.pausedAt ? ' paused' : ''}" type="button" data-act="pause" data-id="${id}" data-countdown="${id}" aria-label="${f.timer.pausedAt ? 'Resume timer' : 'Pause timer'}">${timerText(f)}</button>`;
+  } else if (first && lane === 'seq' && !board.flights.some((x) => x.timer && !x.landed)) {
+    timerBit = `<button class="startbtn" type="button" data-act="start" data-id="${id}" aria-label="Start timer for ${title}">▶ Start</button>`;
+  }
   const handle = f.landed ? '<span></span>' : `<button class="handle" type="button" data-id="${id}" aria-label="Move: ${title}. Drag, or use the up and down arrow keys">⋮⋮</button>`;
   const edit = !editing ? '' : `
     <div class="edit">
@@ -94,6 +114,7 @@ function stripHTML(f, num, { first = false } = {}) {
       <div class="row">
         <span>
           <button class="pill" type="button" data-act="${lane === 'hold' ? 'to-seq' : 'to-hold'}" data-id="${id}">${lane === 'hold' ? 'Move to Sequence' : 'Move to Holding'}</button>
+          ${f.timer ? `<button class="pill" type="button" data-act="stop" data-id="${id}">Stop timer</button>` : ''}
           <button class="pill danger" type="button" data-act="delete" data-id="${id}">Delete</button>
         </span>
         <button class="pill on" type="button" data-act="close" data-id="${id}">Done</button>
@@ -104,7 +125,8 @@ function stripHTML(f, num, { first = false } = {}) {
     <span class="num" aria-hidden="true">${f.landed ? '' : num}</span>
     <div class="main" data-act="edit" data-id="${id}">
       <div class="title">${title}</div>
-      <div class="meta"><button class="time" type="button" data-act="edit" data-id="${id}" aria-label="Time ${hmm(f.minutes)}. Change">${hmm(f.minutes)}</button></div>
+      <div class="meta"><button class="time" type="button" data-act="edit" data-id="${id}" aria-label="Time ${hmm(f.minutes)}. Change">${hmm(f.minutes)}</button>${timerBit}</div>
+      ${due ? '<div class="dueline">Time’s up. Landed? Tap ✓, or keep going.</div>' : ''}
     </div>
     <button class="chk" type="button" data-act="toggle" data-id="${id}" aria-label="${f.landed ? `Not done: ${title}` : `Done: ${title}`}" aria-pressed="${!!f.landed}"></button>
     ${edit}
@@ -131,10 +153,60 @@ function render() {
   const mins = (list) => list.reduce((a, f) => a + f.minutes, 0);
   els.seqMeta.textContent = seq.length ? `${seq.length} · ${hmm(mins(seq))} total` : '';
   els.holdMeta.textContent = hold.length ? `${hold.length} · ${hmm(mins(hold))}` : '';
-  const toRadar = (f) => ({ id: f.id, task: f.task, label: labelOf(f) });
-  radar.setTasks({ seq: seq.map(toRadar), hold: hold.map(toRadar) });
+  pushRadar();
   radar.select(selectedId);
   placeTraffic();
+}
+
+function pushRadar() {
+  if (!board) return;
+  const { seq, hold } = lanes();
+  const toRadar = (f, num) => ({ id: f.id, task: f.task, label: labelOf(f), num, progress: f.timer ? Math.min(1, elapsed(f) / (f.minutes * 60000)) : null });
+  radar.setTasks({ seq: seq.map((f, i) => toRadar(f, i + 1)), hold: hold.map((f, i) => ({ ...toRadar(f, `H${i + 1}`), progress: null })) });
+}
+
+// Once a second: countdowns; every 5 s: nudge the timed blip along the final.
+let tickN = 0;
+setInterval(() => {
+  if (!board) return;
+  const f = board.flights.find((x) => x.timer && !x.landed);
+  if (!f) return;
+  const span = document.querySelector(`[data-countdown="${CSS.escape(f.id)}"]`);
+  if (span) span.textContent = timerText(f);
+  const isDue = remaining(f) < 0;
+  if (isDue !== !!f._wasDue) {
+    f._wasDue = isDue;
+    if (isDue) { toast(`Time’s up: ${f.task}`, { ms: 4000 }); say(`Time's up for ${f.task}`); }
+    render();
+  } else if (++tickN % 5 === 0 && !f.timer.pausedAt && !drag) pushRadar();
+}, 1000);
+
+function startTimer(id) {
+  const f = find(id);
+  if (!f || f.landed) return;
+  for (const x of board.flights) if (x !== f && x.timer) x.timer = null; // one at a time
+  f.timer = { startedAt: new Date().toISOString(), pausedAt: null, accMs: 0 };
+  f._wasDue = false;
+  render();
+  persist();
+  say(`Timer started: ${hmm(f.minutes)} for ${f.task}`);
+}
+function pauseTimer(id, force) {
+  const f = find(id);
+  if (!f?.timer) return;
+  const t = f.timer;
+  if (t.pausedAt && force !== 'pause') f.timer = { startedAt: new Date().toISOString(), pausedAt: null, accMs: t.accMs };
+  else if (!t.pausedAt) f.timer = { ...t, accMs: elapsed(f), pausedAt: new Date().toISOString() };
+  render();
+  persist();
+}
+function stopTimer(id) {
+  const f = find(id);
+  if (!f) return;
+  f.timer = null;
+  f._wasDue = false;
+  render();
+  persist();
 }
 
 // --- live arrivals in the sequence: small grey rows slotted in by time ---
@@ -223,6 +295,7 @@ function toggleDone(id) {
   } else {
     f.landed = true;
     f.landedAt = new Date().toISOString();
+    f.timer = null;
     if (editingId === id) editingId = null;
     toast(`Landed: ${f.task}`, { undo: () => { board.flights = before; render(); persist(); } });
   }
@@ -246,6 +319,7 @@ function setLane(id, lane) {
   const s = seq.map((x) => x.id).filter((x) => x !== id);
   const h = hold.map((x) => x.id).filter((x) => x !== id);
   if (lane === 'seq') s.push(id); else h.unshift(id);
+  if (lane === 'hold' && f.timer) pauseTimer(id, 'pause');
   reorder(s, h);
   render();
   persist();
@@ -303,6 +377,9 @@ document.addEventListener('click', (e) => {
     case 'to-hold': setLane(id, 'hold'); break;
     case 'to-seq': setLane(id, 'seq'); break;
     case 'delete': del(id); break;
+    case 'start': startTimer(id); break;
+    case 'pause': pauseTimer(id); break;
+    case 'stop': stopTimer(id); break;
   }
 });
 document.addEventListener('change', (e) => { if (e.target.dataset?.name) rename(e.target.dataset.name, e.target.value); });
@@ -377,6 +454,7 @@ function endDrag(commit) {
   if (commit && moved) {
     const ids = (rack) => [...rack.children].map((n) => (n === ph ? id : n.classList.contains('strip') && n !== li ? n.dataset.id : null)).filter(Boolean);
     const toHold = ph.parentElement === els.hold;
+    if (toHold && find(id)?.timer) pauseTimer(id, 'pause');
     reorder(ids(els.seq), ids(els.hold));
     const now = lanes();
     const pos = (toHold ? now.hold : now.seq).findIndex((x) => x.id === id) + 1;
@@ -422,7 +500,7 @@ function flush({ keepalive = false } = {}) {
   saveTimer = null;
   if (!board?.id) return;
   const flights = board.flights.map((f) => ({
-    id: f.id, task: f.task, minutes: f.minutes, lane: f.lane, landed: !!f.landed, landedAt: f.landedAt || null,
+    id: f.id, task: f.task, minutes: f.minutes, lane: f.lane, landed: !!f.landed, landedAt: f.landedAt || null, timer: f.timer || null,
     deleted: f._pendingDelete && !pendingDeletes.has(f.id) ? true : undefined,
   }));
   const body = JSON.stringify({ owner: OWNER, id: board.id, flights });

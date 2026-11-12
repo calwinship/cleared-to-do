@@ -91,9 +91,15 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
       return { x: st.x - u.x * d, y: st.y - u.y * d, out: w };
     };
     const total = finalLen + turnLen + downLen;
-    const seq = tasks.seq;
-    const gap = seq.length > 1 ? Math.max(100, Math.min(150, total / (seq.length - 1))) : 0;
-    const fits = Math.min(seq.length, Math.floor(total / Math.max(gap, 1)) + 1, MAX_SEQ + 3);
+    // A running timer pulls its task out of the queue: it glides down the final towards the runway
+    // while the rest of the queue waits a little further out.
+    const timed = tasks.seq.find((t) => t.progress != null);
+    const seq = tasks.seq.filter((t) => t !== timed);
+    const shift = timed ? Math.min(Lf * 0.35, finalLen * 0.6) : 0; // the timed task's run-in
+    const q0 = timed ? shift + 110 : 0; // the queue waits one slot beyond it
+    const avail = total - q0;
+    const gap = seq.length > 1 ? Math.max(100, Math.min(150, avail / (seq.length - 1))) : 0;
+    const fits = Math.min(seq.length, Math.floor(avail / Math.max(gap, 1)) + 1, MAX_SEQ + 3);
     const pts = [];
     for (let d = 0; d <= total; d += 8) pts.push(at(d));
     layout.path = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(0)},${p.y.toFixed(0)}`).join(' ');
@@ -101,10 +107,16 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     const placed = [];
     const blips = [];
     layout.seq = seq.slice(0, fits).map((t, i) => {
-      const p = at(i * gap);
+      const p = at(q0 + i * gap);
       blips.push({ x: p.x - BLIP_R, y: p.y - BLIP_R, w: BLIP_R * 2, h: BLIP_R * 2 });
-      return { t, p, num: String(i + 1) };
+      return { t, p, num: String(t.num ?? i + 1) };
     });
+    if (timed) {
+      const sFromThr = (a0 + shift) * (1 - Math.min(1, Math.max(0, timed.progress)));
+      const p = { x: T.x + u.x * sFromThr, y: T.y + u.y * sFromThr, out: { x: -w.x, y: -w.y } };
+      blips.push({ x: p.x - BLIP_R, y: p.y - BLIP_R, w: BLIP_R * 2, h: BLIP_R * 2 });
+      layout.seq.unshift({ t: timed, p, num: String(timed.num ?? 1), timed: true });
+    }
     layout.seqMore = seq.length - fits;
 
     const H = { x: C + Math.sin(hb) * R * 0.52, y: C - Math.cos(hb) * R * 0.52 };
@@ -158,7 +170,7 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     }
     for (const [lane, list] of [['seq', layout.seq], ['hold', layout.hold]]) {
       for (const it of list) {
-        const g = el('g', { class: `task ${lane}${it.t.id === selected ? ' selected' : ''}`, tabindex: 0, role: 'button', 'aria-label': `${it.num}: ${it.t.task}. Show in list` }, gTasks);
+        const g = el('g', { class: `task ${lane}${it.t.id === selected ? ' selected' : ''}${it.timed ? ' timed' : ''}`, tabindex: 0, role: 'button', 'aria-label': `${it.num}: ${it.t.task}. Show in list` }, gTasks);
         el('line', { x1: it.p.x, y1: it.p.y, x2: it.lp.x, y2: it.lp.y - FONT * 0.35, class: 'leader' }, g);
         el('circle', { cx: it.p.x, cy: it.p.y, r: BLIP_R + 10, class: 'sel-ring' }, g);
         el('circle', { cx: it.p.x, cy: it.p.y, r: BLIP_R, class: 'tblip' }, g);
