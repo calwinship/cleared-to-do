@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Cleared To Do — your tasks, cleared to land",
+  "description": "Cleared To Do — turn your to-do list into an airport arrivals sequence",
   "engines": {
     "node": "26.x"
   },

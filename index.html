@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b0f0d">
 <title>Cleared To Do</title>
-<meta name="description" content="Cleared To Do — your tasks, cleared to land.">
+<meta name="description" content="Turn your to-do list into an airport arrivals sequence. You're the controller at Dublin Airport: sequence, hold and clear each task to land.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0f0d'/%3E%3Crect x='5' y='9' width='22' height='6' rx='1' fill='%23d9ecc9'/%3E%3Crect x='5' y='18' width='22' height='6' rx='1' fill='%23efe3a0'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -39,8 +39,18 @@
 
   /* Header */
   header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0 10px; }
-  .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .06em; color: var(--ink-hi); text-transform: uppercase; }
-  .brand p { margin: 2px 0 0; font-size: 12px; color: var(--ink-dim); letter-spacing: .04em; }
+  header { align-items: flex-start; }
+  .brand { min-width: 0; }
+  .brand h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .06em; color: var(--ink-hi); text-transform: uppercase; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .brand h1 .apt { font-size: 11px; font-weight: 600; letter-spacing: .14em; color: var(--phosphor); border: 1px solid #2c5a3b; border-radius: 3px; padding: 1px 6px; }
+  .brand p { margin: 4px 0 0; font-size: 13px; color: var(--ink); }
+  .brand p.sub { margin-top: 1px; font-size: 12px; color: var(--ink-dim); }
+  .hdr-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+  .modes { display: inline-flex; border: 1px solid var(--rail-hi); border-radius: 20px; padding: 2px; }
+  .modes button { appearance: none; border: 0; background: transparent; color: var(--ink-dim); font: 600 12px var(--mono); letter-spacing: .08em; text-transform: uppercase; border-radius: 16px; padding: 0 12px; min-height: 34px; cursor: pointer; }
+  .modes button[aria-pressed="true"] { background: var(--ink-hi); color: var(--bg); }
+  .modes button:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+  @media (max-width: 520px) { header { flex-wrap: wrap; } .hdr-actions { width: 100%; justify-content: space-between; } }
   .help { appearance: none; flex: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--rail-hi); background: transparent; color: var(--ink); font-weight: 700; font-size: 16px; cursor: pointer; }
   .help:focus-visible, .btn:focus-visible, .chk:focus-visible, .handle:focus-visible, .time:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 2px; }
 
@@ -61,8 +71,11 @@
   .scope .runway { stroke: #6f8378; stroke-linecap: butt; }
   .scope .rwy-label { fill: #6f8378; font: 600 24px var(--mono); }
   .scope .centreline { fill: none; stroke: #2c5a3b; stroke-width: 3; stroke-dasharray: 12 12; }
-  .scope .holdring { fill: none; stroke: #5a4c1c; stroke-width: 3; stroke-dasharray: 10 10; }
-  .scope .hold-label { fill: #7d6a2a; font: 600 24px var(--mono); letter-spacing: 3px; }
+  .scope .coast { fill: none; stroke: #23402f; stroke-width: 2.5; stroke-linejoin: round; }
+  .scope .geo-label { fill: #2f5a40; font: 600 22px var(--mono); letter-spacing: 6px; }
+  .scope .apt-label { fill: #8fb39b; font: 600 26px var(--mono); letter-spacing: 3px; }
+  .scope .holdtrack { fill: none; stroke: #2a4a35; stroke-width: 2; stroke-dasharray: 6 8; }
+  .scope .gatrack { fill: none; stroke: #6b5520; stroke-width: 2.5; stroke-dasharray: 10 10; }
   .scope .badge { fill: var(--amber); font: 600 26px var(--mono); letter-spacing: 2px; }
   .scope .ac { opacity: .5; }
   .scope .ac .blip { fill: none; stroke: #5d8a6b; stroke-width: 2.5; }
@@ -79,11 +92,10 @@
   .scope .task { cursor: pointer; outline: none; }
   .scope .task .hit { fill: transparent; }
   .scope .task .tblip { fill: var(--phosphor); stroke: #08110c; stroke-width: 3; }
-  .scope .task.hold .tblip { fill: var(--amber); }
-  .scope .task .tnum { fill: #08200f; font: 700 28px var(--mono); pointer-events: none; }
-  .scope .task.hold .tnum { font-size: 23px; }
-  .scope .task .task-label { fill: var(--ink-hi); font: 600 40px var(--mono); paint-order: stroke; stroke: #08110c; stroke-width: 10px; stroke-linejoin: round; }
-  .scope .task .leader { stroke: #3d5a47; stroke-width: 2; }
+  .scope .task .tnum { fill: #08200f; font: 700 26px var(--mono); pointer-events: none; }
+  .scope .task .task-label { fill: var(--ink-hi); font: 600 34px var(--mono); paint-order: stroke; stroke: #08110c; stroke-width: 9px; stroke-linejoin: round; pointer-events: none; }
+  .scope .task.timed.ga .tblip { fill: var(--amber); stroke: #08110c; }
+  .scope .task.timed.ga .task-label { fill: var(--amber); }
   .scope .task .sel-ring { fill: none; stroke: transparent; stroke-width: 4; }
   .scope .task.selected .sel-ring, .scope .task:focus-visible .sel-ring { stroke: #fff; }
   .scope .task.selected .task-label { fill: #fff; }
@@ -187,7 +199,37 @@
   details.landed-bay summary::before { content: "▸ "; }
   details.landed-bay[open] summary::before { content: "▾ "; }
   .board-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
-  .foot { margin-top: 26px; font-size: 12px; color: var(--ink-dim); text-align: center; }
+  .foot { margin-top: 32px; font-size: 12px; color: var(--ink-dim); text-align: center; }
+  .foot p { margin: 4px 0; }
+
+  /* The big countdown */
+  .now { background: var(--panel); border: 1px solid var(--rail); border-radius: 10px; padding: 14px 16px 10px; margin-bottom: 18px; text-align: center; }
+  .now p { margin: 0; }
+  .now-kicker { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-dim); }
+  .now-cs { color: var(--phosphor); font-weight: 600; }
+  .now-task { margin-top: 6px !important; font-size: 17px; font-weight: 600; color: var(--ink-hi); overflow-wrap: anywhere; }
+  .now-clock { font: 600 48px/1.1 var(--mono); color: var(--ink-hi); font-variant-numeric: tabular-nums; margin-top: 6px !important; letter-spacing: .02em; }
+  .now.due .now-clock { color: var(--amber); }
+  .now-phase { font-size: 12px; color: var(--ink-dim); min-height: 1.4em; margin-top: 2px !important; }
+  .now-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+  .now-actions .big { width: auto; min-width: 160px; font-size: 15px; }
+  .now-actions .done { min-height: 44px; padding: 0 18px; font-size: 13px; }
+  .now-actions .extend { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; width: 100%; }
+  .now .alerts { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; align-items: center; margin-top: 6px; font-size: 11px; color: var(--ink-dim); }
+  .now .alerts .btn-link { font-size: 11px; }
+  .dueline .pill { min-height: 26px; padding: 0 8px; font-size: 11px; }
+
+  /* Focus mode: one calm column, big timer, small radar with only your tasks */
+  body[data-mode="focus"] .wrap { max-width: 560px; }
+  body[data-mode="focus"] .app { grid-template-columns: minmax(0, 1fr); }
+  body[data-mode="focus"] .radar { order: 2; position: static; }
+  body[data-mode="focus"] .scope { max-width: min(100%, 320px); }
+  body[data-mode="focus"] .radar-bar { justify-content: center; }
+  body[data-mode="focus"] .radar-bar .switch-sm { display: none; }
+  body[data-mode="focus"] .now { padding: 26px 16px 14px; }
+  body[data-mode="focus"] .now-clock { font-size: 84px; }
+  body[data-mode="focus"] .now-task { font-size: 19px; }
+  @media (max-width: 400px) { body[data-mode="focus"] .now-clock { font-size: 64px; } }
   .foot a { color: var(--ink-dim); }
 
   .toast { position: fixed; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 14px; background: #1b231f; color: var(--ink); border: 1px solid var(--rail-hi); border-radius: 6px; padding: 8px 8px 8px 14px; font-size: 13px; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgba(0,0,0,.5); }
@@ -212,17 +254,23 @@
 <div class="wrap">
   <header>
     <div class="brand">
-      <h1>Cleared To Do</h1>
-      <p>your tasks, cleared to land</p>
+      <h1>Cleared To Do <span class="apt">Dublin · EIDW</span></h1>
+      <p class="tag">Turn your to-do list into an airport arrivals sequence.</p>
+      <p class="sub">You're the controller: sequence, hold and clear each task to land.</p>
     </div>
-    <button class="help" id="help" type="button" aria-label="How it works" aria-haspopup="dialog">?</button>
+    <div class="hdr-actions">
+      <div class="modes" role="group" aria-label="Mode">
+        <button type="button" data-set-mode="focus" aria-pressed="false">Focus</button>
+        <button type="button" data-set-mode="fun" aria-pressed="true">Fun</button>
+      </div>
+      <button class="help" id="help" type="button" aria-label="How it works" aria-haspopup="dialog">?</button>
+    </div>
   </header>
 
   <div class="app">
     <section class="radar" aria-label="Radar">
       <div id="scope"></div>
       <div class="radar-bar">
-        <span id="radar-credit">Connecting to traffic…</span>
         <label class="switch-sm"><input type="checkbox" id="show-traffic"> Arrivals in list</label>
         <button class="btn btn-ghost" id="range" type="button" aria-label="Change radar range">Zoom</button>
       </div>
@@ -249,6 +297,16 @@
       </section>
 
       <section id="board" class="hidden">
+        <section id="now" class="now hidden" aria-label="Current task">
+          <div id="now-body"></div>
+          <div class="alerts">
+            <label class="switch-sm"><input type="checkbox" id="chime"> Chime when time's up</label>
+            <button class="btn-link" id="notify" type="button">Turn on notifications</button>
+            <span id="notify-on" class="hidden">Notifications on</span>
+            <span id="notify-off" class="hidden">Notifications blocked in your browser's site settings</span>
+          </div>
+        </section>
+
         <div class="bay">
           <div class="bay-head"><h2>SEQUENCE<small>do now</small></h2><span id="seq-meta"></span></div>
           <ul class="rack" id="seq" aria-label="Sequence: do now"></ul>
@@ -275,20 +333,24 @@
 
         <div class="board-actions"><button class="btn btn-ghost" id="new-board" type="button">Start a new list</button></div>
       </section>
-      <footer class="foot"><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#delete">Delete my data</a></footer>
     </main>
   </div>
+  <footer class="foot">
+    <p id="radar-credit">Connecting to live traffic…</p>
+    <p><a href="/privacy.html">Privacy</a> · <a href="/privacy.html#delete">Delete my data</a></p>
+  </footer>
   <div id="toast" class="toast hidden" role="status"></div>
   <div id="announce" class="sr" aria-live="polite"></div>
 
   <dialog class="guide" id="guide" aria-labelledby="guide-title">
     <h2 id="guide-title">HOW IT WORKS</h2>
     <ul>
-      <li><b>Tell the tower</b> what's on your plate, messy is fine. It sorts everything into a list. Or add tasks one by one.</li>
+      <li>You're the controller at <b>Dublin Airport</b>. Your tasks are the arrivals.</li>
+      <li><b>Tell the tower</b> what's on your plate, messy is fine. It sorts everything into a sequence. Or add tasks one by one.</li>
       <li><b>Sequence</b> is what you're doing now, in order. <b>Holding</b> is not today. <b>Landed</b> is done.</li>
-      <li><b>Drag</b> a task by its ⋮⋮ handle to reorder it, or drop it into Holding or back into the Sequence.</li>
-      <li><b>Tap</b> a task to rename it, change its time, or delete it. Tap <b>✓</b> when it's done.</li>
-      <li>The <b>radar</b> shows your list as traffic: numbered blips on the approach and in the hold. Tap one to jump to it. Real aircraft around Dublin drift by in the background.</li>
+      <li><b>Start</b> the top task. On the radar it leaves its hold so it touches down when its time is up. Not done by then? It <b>goes around</b> and keeps circling until you tick it off or add time.</li>
+      <li><b>Drag</b> a task by its ⋮⋮ handle to reorder it, or drop it into Holding. <b>Tap</b> a task to rename it, change its time, or delete it. Tap <b>✓</b> when it's done.</li>
+      <li><b>Focus</b> mode keeps it calm: a big timer, your list, a small radar. <b>Fun</b> mode adds live Dublin traffic, arrivals in your list, and tower-style messages.</li>
     </ul>
     <div class="row"><a href="/privacy.html">Privacy &amp; delete my data</a><button class="btn btn-ghost" id="guide-close" type="button">Got it</button></div>
   </dialog>

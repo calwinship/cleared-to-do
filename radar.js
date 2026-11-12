@@ -1,7 +1,10 @@
-// Radar: a calm picture of your list. Your tasks are numbered blips: Sequence lined up on the approach,
-// Holding parked in a hold. Real traffic around Dublin drifts by in the background (or labelled SIM
-// when the feed is down). Tapping a task blip or label calls onSelectTask(id).
+// Radar: your list as arrivals into Dublin Airport (EIDW). Task blips fly at approach speed, like the
+// real traffic: waiting tasks circle holds around the edge, the timed task leaves its hold so it touches
+// down when its time runs out, and goes around if it isn't done. Real traffic drifts by in Fun mode
+// (labelled SIM when the feed is down). Tapping a task blip calls onSelectTask(id).
 import { ARP, RUNWAYS, destination, bearing, distNm, angleDiff } from './shared/eidw.js';
+import { geometry, activePos, waitingPos, sample, FIX_COUNT } from './shared/approach.js';
+import { COAST } from './shared/coast.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const SIZE = 1000;
@@ -10,8 +13,6 @@ const R = SIZE / 2 - 4;
 const RANGES = [10, 20, 40, 60];
 const POLL_MS = 10000;
 const KT_TO_NM_PER_MS = 1 / 3600000;
-const MAX_SEQ = 9;
-const MAX_HOLD = 8;
 const FORCE_SIM = new URLSearchParams(location.search).has('sim'); // ?sim shows simulated traffic
 
 const el = (tag, attrs = {}, parent) => {
@@ -21,35 +22,46 @@ const el = (tag, attrs = {}, parent) => {
   return n;
 };
 
-export function createRadar(container, { onSelectTask, onStatus, onArrivals, onSelectAircraft, onRange } = {}) {
+export function createRadar(container, { onSelectTask, onStatus, onArrivals, onSelectAircraft, onRange, onRunway } = {}) {
   let range = 20;
   try { const r = +localStorage.getItem('ctd_range'); if (RANGES.includes(r)) range = r; } catch {}
   let scale = R / range;
   const cosLat = Math.cos((ARP.lat * Math.PI) / 180);
   const project = (p) => ({ x: C + (p.lon - ARP.lon) * 60 * cosLat * scale, y: C - (p.lat - ARP.lat) * 60 * scale });
+  const toNm = (p) => ({ x: (p.lon - ARP.lon) * 60 * cosLat, y: (p.lat - ARP.lat) * 60 });
+  const screen = (p) => ({ x: C + p.x * scale, y: C - p.y * scale }); // nm -> svg
 
-  const svg = el('svg', { viewBox: `0 0 ${SIZE} ${SIZE}`, class: 'scope', role: 'group', 'aria-label': 'Radar: your tasks around Dublin Airport' }, container);
+  const svg = el('svg', { viewBox: `0 0 ${SIZE} ${SIZE}`, class: 'scope', role: 'group', 'aria-label': 'Radar: your tasks as arrivals into Dublin Airport' }, container);
   const defs = el('defs', {}, svg);
   el('circle', { cx: C, cy: C, r: R }, el('clipPath', { id: 'scope-clip' }, defs));
   el('circle', { cx: C, cy: C, r: R, class: 'scope-bg' }, svg);
   const world = el('g', { 'clip-path': 'url(#scope-clip)' }, svg);
   const gStatic = el('g', {}, world);
+  const gGuides = el('g', { 'aria-hidden': 'true' }, world);
   const gTraffic = el('g', { class: 'traffic', 'aria-hidden': 'true' }, world); // keyboard users pick aircraft from the list instead
-  const gTaskBg = el('g', { 'aria-hidden': 'true' }, world);
   const gTasks = el('g', { class: 'tasks' }, svg); // unclipped so labels near the rim stay readable
   const badge = el('text', { x: 30, y: 50, class: 'badge' }, svg);
+  const notes = el('text', { x: 30, y: SIZE - 30, class: 'more' }, svg);
+  el('text', { x: SIZE - 30, y: 50, class: 'apt-label', 'text-anchor': 'end' }, svg).textContent = 'EIDW · DUBLIN';
 
   let traffic = { aircraft: [], sim: true, attribution: null };
-  let tasks = { seq: [], hold: [] };
+  let tasks = { seq: [], holdCount: 0 };
   let selected = null;
   let picked = null; // selected aircraft hex
+  let mode = 'fun';
   let landing = RUNWAYS[1].thresholds[1]; // 28L until the traffic says otherwise
+  let geo = null;
+  let activeInfo = null; // phase of the timed task, for the app's status line
   const nodes = new Map();
 
-  // ---------- static: rings, runways ----------
+  // ---------- static: coast, rings, runways ----------
   function drawStatic() {
     gStatic.innerHTML = '';
     scale = R / range;
+    const coast = COAST.map((seg) => seg.map(([lat, lon], i) => { const p = project({ lat, lon }); return `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`; }).join('')).join(' ');
+    el('path', { d: coast, class: 'coast' }, gStatic);
+    const sea = project({ lat: 53.42 + range * 0.0065, lon: -6.06 + range * 0.0025 }); // offshore, between the holds
+    el('text', { x: sea.x, y: sea.y, class: 'geo-label', 'text-anchor': 'middle' }, gStatic).textContent = 'IRISH SEA';
     const step = range / 4;
     for (let r = step; r <= range + 0.01; r += step) el('circle', { cx: C, cy: C, r: r * scale, class: 'ring' }, gStatic);
     el('text', { x: C + 8, y: C - R + 34, class: 'ring-label' }, gStatic).textContent = `${range} nm`;
@@ -57,132 +69,133 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
       const a = project(rw.ends[0]), b = project(rw.ends[1]);
       el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: 'runway', 'stroke-width': Math.max(6, (45 / 1852) * scale * 2.5) }, gStatic);
     }
-    layoutTasks(); // the approach line and hold depend on the runway in use
-  }
-
-  // ---------- tasks: laid out in screen space so every label stays readable ----------
-  // Sequence follows a "trombone": out along the final approach, a turn, then back down a downwind leg.
-  // Labels try a few spots each and take the first that overlaps nothing already placed.
-  const FONT = 40, CHAR_W = FONT * 0.62, BLIP_R = 26;
-  const layout = { seq: [], hold: [], path: '', hold0: null };
-  function layoutTasks() {
     const T = project(landing);
-    const inbound = ((landing.brg + 180) % 360) * (Math.PI / 180);
-    const u = { x: Math.sin(inbound), y: -Math.cos(inbound) }; // out along the approach
-    const hb = inbound - Math.PI / 2; // the hold sits on this side...
-    const w = { x: -Math.sin(hb), y: Math.cos(hb) }; // ...and the downwind leg on the other
-    const dx = T.x - C, dy = T.y - C, rr = R * 0.86;
-    const b = dx * u.x + dy * u.y;
-    const Lf = -b + Math.sqrt(b * b - (dx * dx + dy * dy - rr * rr)); // threshold to near the rim
-    const rt = R * 0.17; // turn radius
-    const a0 = Math.min(90, Lf * 0.2); // first slot, clear of the runway
-    const finalLen = Lf - a0, turnLen = Math.PI * rt, downLen = Lf * 0.85;
-    const at = (d) => {
-      if (d <= finalLen) return { x: T.x + u.x * (a0 + d), y: T.y + u.y * (a0 + d), out: { x: -w.x, y: -w.y } };
-      d -= finalLen;
-      const c = { x: T.x + u.x * Lf + w.x * rt, y: T.y + u.y * Lf + w.y * rt };
-      if (d <= turnLen) {
-        const th = d / rt; // sweep from -w to +w through +u
-        const v = { x: -w.x * Math.cos(th) + u.x * Math.sin(th), y: -w.y * Math.cos(th) + u.y * Math.sin(th) };
-        return { x: c.x + v.x * rt, y: c.y + v.y * rt, out: v };
-      }
-      d -= turnLen;
-      const st = { x: T.x + u.x * Lf + w.x * 2 * rt, y: T.y + u.y * Lf + w.y * 2 * rt };
-      return { x: st.x - u.x * d, y: st.y - u.y * d, out: w };
-    };
-    const total = finalLen + turnLen + downLen;
-    // A running timer pulls its task out of the queue: it glides down the final towards the runway
-    // while the rest of the queue waits a little further out.
-    const timed = tasks.seq.find((t) => t.progress != null);
-    const seq = tasks.seq.filter((t) => t !== timed);
-    const shift = timed ? Math.min(Lf * 0.35, finalLen * 0.6) : 0; // the timed task's run-in
-    const q0 = timed ? shift + 110 : 0; // the queue waits one slot beyond it
-    const avail = total - q0;
-    const gap = seq.length > 1 ? Math.max(100, Math.min(150, avail / (seq.length - 1))) : 0;
-    const fits = Math.min(seq.length, Math.floor(avail / Math.max(gap, 1)) + 1, MAX_SEQ + 3);
-    const pts = [];
-    for (let d = 0; d <= total; d += 8) pts.push(at(d));
-    layout.path = pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(0)},${p.y.toFixed(0)}`).join(' ');
-    layout.T = T;
-    const placed = [];
-    const blips = [];
-    layout.seq = seq.slice(0, fits).map((t, i) => {
-      const p = at(q0 + i * gap);
-      blips.push({ x: p.x - BLIP_R, y: p.y - BLIP_R, w: BLIP_R * 2, h: BLIP_R * 2 });
-      return { t, p, num: String(t.num ?? i + 1) };
-    });
-    if (timed) {
-      const sFromThr = (a0 + shift) * (1 - Math.min(1, Math.max(0, timed.progress)));
-      const p = { x: T.x + u.x * sFromThr, y: T.y + u.y * sFromThr, out: { x: -w.x, y: -w.y } };
-      blips.push({ x: p.x - BLIP_R, y: p.y - BLIP_R, w: BLIP_R * 2, h: BLIP_R * 2 });
-      layout.seq.unshift({ t: timed, p, num: String(timed.num ?? 1), timed: true });
-    }
-    layout.seqMore = seq.length - fits;
-
-    const H = { x: C + Math.sin(hb) * R * 0.52, y: C - Math.cos(hb) * R * 0.52 };
-    const hr = R * 0.2;
-    layout.hold0 = { ...H, r: hr };
-    const hold = tasks.hold.slice(0, MAX_HOLD);
-    layout.hold = hold.map((t, i) => {
-      const ang = -Math.PI / 2 + (i * 2 * Math.PI) / Math.max(hold.length, 1);
-      const v = { x: Math.cos(ang), y: Math.sin(ang) };
-      const p = { x: H.x + v.x * hr, y: H.y + v.y * hr, out: v };
-      blips.push({ x: p.x - BLIP_R, y: p.y - BLIP_R, w: BLIP_R * 2, h: BLIP_R * 2 });
-      return { t, p, num: `H${i + 1}` };
-    });
-    layout.holdMore = tasks.hold.length - hold.length;
-
-    // label placement: try outward, inward, then further out; keep inside the drawing
-    const boxOf = (x, y, text, anchor) => {
-      const wdt = text.length * CHAR_W;
-      const left = anchor === 'middle' ? x - wdt / 2 : anchor === 'end' ? x - wdt : x;
-      return { x: left - 4, y: y - FONT * 0.8, w: wdt + 8, h: FONT };
-    };
-    const hit = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-    for (const it of [...layout.seq, ...layout.hold]) {
-      const o = it.p.out;
-      const text = it.t.label;
-      let best = null;
-      for (const [k, dist] of [[1, 52], [-1, 52], [1, 98], [-1, 98], [1, 144], [-1, 144]]) {
-        const lx = it.p.x + o.x * k * dist, ly = it.p.y + o.y * k * dist + FONT * 0.35;
-        const anchor = Math.abs(o.x * k) < 0.45 ? 'middle' : o.x * k > 0 ? 'start' : 'end';
-        const box = boxOf(lx, ly, text, anchor);
-        const inside = box.x > -60 && box.x + box.w < SIZE + 60 && box.y > 0 && box.y + box.h < SIZE;
-        const cand = { lx, ly, anchor, box };
-        best ??= cand;
-        if (inside && !placed.some((b) => hit(b, box)) && !blips.some((b) => hit(b, box))) { best = cand; break; }
-      }
-      placed.push(best.box);
-      Object.assign(it, { lp: { x: best.lx, y: best.ly }, anchor: best.anchor });
-    }
-    drawTasks();
+    el('text', { x: T.x, y: T.y + 46, class: 'rwy-label', 'text-anchor': 'middle' }, gStatic).textContent = landing.id;
+    geo = geometry({ ...toNm(landing), brg: landing.brg }, range);
+    guideKey = '';
+    for (const n of nodes.values()) n.disp = null; // re-placed, not eased, after a zoom or runway change
+    drawTasks(Date.now());
   }
 
-  function drawTasks() {
-    gTaskBg.innerHTML = '';
-    gTasks.innerHTML = '';
-    if (!layout.T) return;
-    if (tasks.seq.length) el('path', { d: layout.path, class: 'centreline' }, gTaskBg);
-    el('text', { x: layout.T.x, y: layout.T.y + 48, class: 'rwy-label', 'text-anchor': 'middle' }, gTaskBg).textContent = landing.id;
-    if (tasks.hold.length) {
-      el('circle', { cx: layout.hold0.x, cy: layout.hold0.y, r: layout.hold0.r, class: 'holdring' }, gTaskBg);
-      el('text', { x: layout.hold0.x, y: layout.hold0.y + 10, class: 'hold-label', 'text-anchor': 'middle' }, gTaskBg).textContent = 'HOLD';
+  // ---------- tasks: one persistent node per task, moved every frame ----------
+  const FONT = 34, BLIP_R = 24;
+  function taskNode(id) {
+    let n = nodes.get(id);
+    if (n) return n;
+    const g = el('g', { tabindex: 0, role: 'button' }, gTasks);
+    n = {
+      g,
+      ring: el('circle', { r: BLIP_R + 10, class: 'sel-ring' }, g),
+      blip: el('circle', { r: BLIP_R, class: 'tblip' }, g),
+      num: el('text', { class: 'tnum', 'text-anchor': 'middle' }, g),
+      label: el('text', { class: 'task-label' }, g),
+      hit: el('circle', { r: BLIP_R + 18, class: 'hit' }, g),
+      disp: null, target: null, off: null, cls: '', aria: '',
+    };
+    g.addEventListener('click', () => onSelectTask?.(id));
+    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectTask?.(id); } });
+    nodes.set(id, n);
+    return n;
+  }
+
+  let guideKey = '';
+  function drawGuides(occupied, active) {
+    const key = [range, landing.id, occupied.join(','), active ? `${active.fi}${active.phase}` : ''].join('|');
+    if (key === guideKey) return;
+    guideKey = key;
+    gGuides.innerHTML = '';
+    const d = (pts) => pts.map((q, i) => { const s = screen(q); return `${i ? 'L' : 'M'}${s.x.toFixed(0)},${s.y.toFixed(0)}`; }).join('');
+    for (const i of occupied) el('path', { d: d(sample(geo.fixes[i].hold, 0.3)), class: 'holdtrack' }, gGuides);
+    if (active?.phase === 'goaround') el('path', { d: d(sample(geo.ga, 0.3)), class: 'gatrack' }, gGuides);
+    else if (active) el('path', { d: d(sample(active.path, 0.5)), class: 'centreline' }, gGuides);
+  }
+
+  // Each task keeps its hold until it lands, so finishing one doesn't reshuffle the rest.
+  // New tasks take the free fix nearest the approach.
+  const fixOf = new Map();
+  let shown = [];
+  function assignFixes() {
+    shown = tasks.seq.slice(0, FIX_COUNT);
+    const timed = tasks.seq.find((t) => t.timer);
+    if (timed && !shown.includes(timed)) shown[FIX_COUNT - 1] = timed;
+    const ids = new Set(shown.map((t) => t.id));
+    for (const id of [...fixOf.keys()]) if (!ids.has(id)) fixOf.delete(id);
+    const used = new Set(fixOf.values());
+    for (const t of shown) {
+      if (fixOf.has(t.id)) continue;
+      let f = 0;
+      while (used.has(f)) f++;
+      fixOf.set(t.id, f);
+      used.add(f);
     }
-    for (const [lane, list] of [['seq', layout.seq], ['hold', layout.hold]]) {
-      for (const it of list) {
-        const g = el('g', { class: `task ${lane}${it.t.id === selected ? ' selected' : ''}${it.timed ? ' timed' : ''}`, tabindex: 0, role: 'button', 'aria-label': `${it.num}: ${it.t.task}. Show in list` }, gTasks);
-        el('line', { x1: it.p.x, y1: it.p.y, x2: it.lp.x, y2: it.lp.y - FONT * 0.35, class: 'leader' }, g);
-        el('circle', { cx: it.p.x, cy: it.p.y, r: BLIP_R + 10, class: 'sel-ring' }, g);
-        el('circle', { cx: it.p.x, cy: it.p.y, r: BLIP_R, class: 'tblip' }, g);
-        el('text', { x: it.p.x, y: it.p.y + 10, class: 'tnum', 'text-anchor': 'middle' }, g).textContent = it.num;
-        el('text', { x: it.lp.x, y: it.lp.y, class: 'task-label', 'text-anchor': it.anchor }, g).textContent = it.t.label;
-        el('circle', { cx: it.p.x, cy: it.p.y, r: BLIP_R + 18, class: 'hit' }, g);
-        g.addEventListener('click', () => onSelectTask?.(it.t.id));
-        g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectTask?.(it.t.id); } });
+  }
+
+  function drawTasks(now) {
+    if (!geo) return;
+    const items = [];
+    const occupied = new Set();
+    let active = null;
+    shown.forEach((t) => {
+      const fi = fixOf.get(t.id);
+      if (t.timer) {
+        const rem = t.timer.paused ? t.timer.remainingMs : t.timer.dueAt - now;
+        const a = activePos(geo, fi, rem, now, t.timer.paused);
+        active = { ...a, fi, id: t.id };
+        if (a.phase === 'hold') occupied.add(fi);
+        items.push({ t, p: a.p, phase: a.phase, fi });
+      } else {
+        occupied.add(fi);
+        items.push({ t, p: waitingPos(geo, fi, now), phase: 'wait', fi });
       }
+    });
+    activeInfo = active && { phase: active.phase, leaveInMs: active.leaveInMs, runway: landing.id, id: active.id };
+    drawGuides([...occupied], active);
+
+    const seen = new Set();
+    const easing = !reduced.matches;
+    const awayW = { x: -geo.w.x, y: geo.w.y }; // screen direction away from the go-around side
+    for (const it of items) {
+      const n = taskNode(it.t.id);
+      seen.add(it.t.id);
+      const target = screen(it.p);
+      // a jump (re-sequenced, timer started, time added) glides over instead of teleporting
+      if (easing && n.disp && n.target && Math.hypot(target.x - n.target.x, target.y - n.target.y) > 12) n.off = { x: n.disp.x - target.x, y: n.disp.y - target.y, t: now };
+      n.target = target;
+      let ox = 0, oy = 0;
+      if (n.off) { const k = Math.max(0, 1 - (now - n.off.t) / 1800); ox = n.off.x * k * k; oy = n.off.y * k * k; if (!k) n.off = null; }
+      const p = n.disp = { x: target.x + ox, y: target.y + oy };
+
+      // label: towards the middle of the scope while holding, away from the circuit when flying the approach
+      let dir;
+      if (it.phase === 'approach' || it.phase === 'goaround') dir = awayW;
+      else dir = { x: p.x < C ? 1 : -1, y: 0 }; // level with the blip, on the inward side
+      const lx = p.x + dir.x * 54, ly = p.y + dir.y * 54 + FONT * 0.35;
+      const anchor = Math.abs(dir.x) < 0.45 ? 'middle' : dir.x > 0 ? 'start' : 'end';
+
+      const timed = !!it.t.timer;
+      const cls = `task ${timed ? 'timed' : 'seq'}${it.phase === 'goaround' ? ' ga' : ''}${it.t.id === selected ? ' selected' : ''}`;
+      if (cls !== n.cls) { n.g.setAttribute('class', cls); n.cls = cls; }
+      const aria = `${it.t.num}: ${it.t.task}. Show in list`;
+      if (aria !== n.aria) { n.g.setAttribute('aria-label', aria); n.aria = aria; }
+      for (const c of [n.ring, n.blip, n.hit]) { c.setAttribute('cx', p.x.toFixed(1)); c.setAttribute('cy', p.y.toFixed(1)); }
+      n.num.setAttribute('x', p.x.toFixed(1));
+      n.num.setAttribute('y', (p.y + 9).toFixed(1));
+      if (n.num.textContent !== String(it.t.num)) n.num.textContent = it.t.num;
+      const text = it.phase === 'goaround' ? `${it.t.label} GA` : it.t.label;
+      if (n.label.textContent !== text) n.label.textContent = text;
+      n.label.setAttribute('x', lx.toFixed(1));
+      n.label.setAttribute('y', ly.toFixed(1));
+      n.label.setAttribute('text-anchor', anchor);
+      if (timed && gTasks.lastChild !== n.g) gTasks.appendChild(n.g); // the timed task draws on top
     }
-    if (layout.seqMore > 0) el('text', { x: layout.T.x, y: layout.T.y + 96, class: 'more', 'text-anchor': 'middle' }, gTasks).textContent = `+${layout.seqMore} more in list`;
-    if (layout.holdMore > 0) el('text', { x: layout.hold0.x, y: layout.hold0.y + 50, class: 'more', 'text-anchor': 'middle' }, gTasks).textContent = `+${layout.holdMore}`;
+    for (const [id, n] of nodes) if (!seen.has(id)) { n.g.remove(); nodes.delete(id); }
+
+    const parts = [];
+    const more = tasks.seq.length - shown.length;
+    if (more > 0) parts.push(`+${more} MORE IN LIST`);
+    if (tasks.holdCount) parts.push(`${tasks.holdCount} NOT TODAY`);
+    const txt = parts.join(' · ');
+    if (notes.textContent !== txt) notes.textContent = txt;
   }
 
   // ---------- background traffic ----------
@@ -199,7 +212,7 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     const sim = FORCE_SIM || !live.length || !!payload?.error;
     traffic = { sim, attribution: payload?.attribution || null, aircraft: sim ? [] : live.map((a) => ({ ...a, fixAt: fetchedAt - (a.seen || 0) * 1000 })) };
     if (!sim) chooseRunway(traffic.aircraft);
-    badge.textContent = sim ? 'SIM TRAFFIC' : '';
+    badge.textContent = sim && mode === 'fun' ? 'SIM TRAFFIC' : '';
     onStatus?.(traffic);
     onArrivals?.(arrivals(Date.now()));
   }
@@ -238,7 +251,7 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     const best = [...votes].sort((x, y) => y[1] - x[1])[0];
     if (!best || best[1] < 2) return;
     const t = RUNWAYS.flatMap((r) => r.thresholds).find((x) => x.id === best[0]);
-    if (t && t.id !== landing.id) { landing = t; drawStatic(); }
+    if (t && t.id !== landing.id) { landing = t; drawStatic(); onRunway?.(t.id); }
   }
 
   function simAircraft(now) {
@@ -256,19 +269,20 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     return out;
   }
 
+  const acNodes = new Map();
   function drawTraffic(now) {
     const list = traffic.sim ? simAircraft(now) : traffic.aircraft.map((a) => extrapolate(a, now));
     const seen = new Set();
     for (const a of list) {
       seen.add(a.hex);
-      let n = nodes.get(a.hex);
+      let n = acNodes.get(a.hex);
       if (!n) {
         const g = el('g', { class: `ac${traffic.sim ? ' sim' : ''}` }, gTraffic);
         n = { g, vec: el('line', { class: 'vec' }, g), blip: el('rect', { x: -5, y: -5, width: 10, height: 10, class: 'blip' }, g), label: null };
         el('rect', { x: -22, y: -22, width: 44, height: 44, class: 'hit' }, g);
         const hex = a.hex;
         g.addEventListener('click', () => onSelectAircraft?.(hex));
-        nodes.set(a.hex, n);
+        acNodes.set(a.hex, n);
       }
       const p = project(a);
       if (n.disp && n.fixAt !== a.fixAt) n.off = { x: n.disp.x - p.x, y: n.disp.y - p.y, t: now }; // ease to the new fix
@@ -288,7 +302,7 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
         n.label.textContent = `${a.callsign || a.hex} ${String(Math.round((a.alt || 0) / 100)).padStart(3, '0')}`;
       } else if (n.label) { n.label.remove(); n.label = null; }
     }
-    for (const [hex, n] of nodes) if (!seen.has(hex)) { n.g.remove(); nodes.delete(hex); }
+    for (const [hex, n] of acNodes) if (!seen.has(hex)) { n.g.remove(); acNodes.delete(hex); }
   }
 
   // ---------- loop + polling ----------
@@ -298,7 +312,9 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     requestAnimationFrame(frame);
     if (ts - last < (reduced.matches ? 2000 : 100)) return; // ~10 fps: smooth enough, easy on battery
     last = ts;
-    drawTraffic(Date.now());
+    const now = Date.now();
+    if (mode === 'fun') drawTraffic(now);
+    drawTasks(now);
   }
   let pollTimer = 0;
   async function poll() {
@@ -313,10 +329,21 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
   }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); else clearTimeout(pollTimer); });
 
+  const resetEase = () => { for (const n of [...nodes.values(), ...acNodes.values()]) { n.off = null; n.disp = null; } };
   return {
     start() { drawStatic(); requestAnimationFrame(frame); poll(); },
-    setTasks(next) { tasks = next; layoutTasks(); },
-    select(id) { selected = id; drawTasks(); },
+    /** seq: [{ id, task, label, num, timer: { dueAt, paused, remainingMs } | null }], holdCount: number */
+    setTasks(next) { tasks = next; assignFixes(); drawTasks(Date.now()); },
+    select(id) { selected = id; drawTasks(Date.now()); },
+    /** The timed task's phase: 'hold' | 'approach' | 'goaround', plus the runway in use. */
+    active: () => activeInfo,
+    runway: () => landing.id,
+    setMode(m) {
+      mode = m;
+      gTraffic.style.display = m === 'fun' ? '' : 'none';
+      badge.textContent = traffic.sim && m === 'fun' ? 'SIM TRAFFIC' : '';
+      if (m === 'fun') drawTraffic(Date.now());
+    },
     selectAircraft(hex) {
       picked = hex;
       // zoom out if the picked aircraft is off the scope
@@ -325,7 +352,7 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
         const need = RANGES.find((r) => r >= distNm(a, ARP) + 3) || RANGES.at(-1);
         if (need > range) {
           range = need;
-          for (const n of nodes.values()) { n.off = null; n.disp = null; }
+          resetEase();
           drawStatic();
           onRange?.(range);
         }
@@ -334,7 +361,7 @@ export function createRadar(container, { onSelectTask, onStatus, onArrivals, onS
     cycleRange() {
       range = RANGES[(RANGES.indexOf(range) + 1) % RANGES.length];
       try { localStorage.setItem('ctd_range', String(range)); } catch {}
-      for (const n of nodes.values()) { n.off = null; n.disp = null; }
+      resetEase();
       drawStatic();
       return range;
     },

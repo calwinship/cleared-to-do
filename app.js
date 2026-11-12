@@ -1,6 +1,8 @@
-// Cleared To Do: a task list you can see. Sequence = do now, Holding = not today, Landed = done.
-// The radar draws the list as numbered traffic; real aircraft drift by in the background.
+// Cleared To Do: your to-do list as an arrivals sequence into Dublin Airport. You're the controller.
+// Sequence = do now, Holding = not today, Landed = done. The radar flies the list as traffic: the timed
+// task touches down when its time runs out, or goes around. Focus mode is calm; Fun mode adds live traffic.
 import { createRadar } from './radar.js';
+import { goArounds } from './shared/approach.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -8,6 +10,7 @@ const els = {
   ghosts: $('ghosts'), board: $('board'), seq: $('seq'), hold: $('hold'), landed: $('landed'), landedBay: $('landed-bay'),
   landedSummary: $('landed-summary'), seqMeta: $('seq-meta'), holdMeta: $('hold-meta'), add: $('add'), addText: $('add-text'),
   addTime: $('add-time'), newBoard: $('new-board'), toast: $('toast'), announce: $('announce'),
+  now: $('now'), nowBody: $('now-body'), chime: $('chime'), notify: $('notify'), notifyOn: $('notify-on'), notifyOff: $('notify-off'),
 };
 
 let board = null;
@@ -39,6 +42,7 @@ const timerText = (f) => {
   const r = remaining(f);
   return r >= 0 ? `${f.timer.pausedAt ? '▶' : '⏸'} ${clock(r)}` : `+${clock(r)} over`;
 };
+const gaCount = (f) => (f.timer ? (f.timer.ga || 0) + goArounds(-remaining(f)) : 0);
 const showError = (msg) => { els.error.textContent = msg; els.error.classList.toggle('hidden', !msg); };
 
 // one-word radar label, same rule as the server
@@ -50,6 +54,14 @@ function shortLabel(task) {
   return (keep.at(-1) || words[0] || 'TASK').slice(0, 10);
 }
 const labelOf = (f) => (f.callsign ? String(f.callsign).split(' ')[0] : shortLabel(f.task));
+
+// --- Focus / Fun ---
+// Focus: a big countdown and the list, a small calm radar with only your tasks.
+// Fun: the full radar with live Dublin traffic, arrivals in the list, and tower-style messages.
+let mode = store.get('ctd_mode') === 'focus' ? 'focus' : 'fun';
+document.body.dataset.mode = mode;
+const fun = () => mode === 'fun';
+const atc = (funMsg, plainMsg) => (fun() ? funMsg : plainMsg);
 
 // --- toast with optional Undo ---
 let toastTimer = null, toastUndo = null;
@@ -87,12 +99,14 @@ function reorder(seqIds, holdIds) {
 }
 
 // --- rendering ---
+const gaText = (n) => (n === 1 ? 'went around' : `went around ×${n}`);
 const PRESETS = [5, 10, 15, 30, 45, 60, 90, 120];
 function stripHTML(f, num, { first = false } = {}) {
   const lane = f.landed ? 'landed' : f.lane === 'hold' ? 'hold' : 'seq';
   const id = esc(f.id), title = esc(f.task);
   const editing = f.id === editingId && !f.landed;
   const due = f.timer && !f.landed && remaining(f) < 0;
+  const ga = f.landed ? 0 : gaCount(f);
   const cls = ['strip', lane, first && 'first', f.id === selectedId && 'selected', editing && 'editing', due && 'due'].filter(Boolean).join(' ');
   let timerBit = '';
   if (f.timer && !f.landed) {
@@ -125,8 +139,8 @@ function stripHTML(f, num, { first = false } = {}) {
     <span class="num" aria-hidden="true">${f.landed ? '' : num}</span>
     <div class="main" data-act="edit" data-id="${id}">
       <div class="title">${title}</div>
-      <div class="meta"><button class="time" type="button" data-act="edit" data-id="${id}" aria-label="Time ${hmm(f.minutes)}. Change">${hmm(f.minutes)}</button>${timerBit}</div>
-      ${due ? '<div class="dueline">Time’s up. Landed? Tap ✓, or keep going.</div>' : ''}
+      <div class="meta"><button class="time" type="button" data-act="edit" data-id="${id}" aria-label="Time ${hmm(f.minutes)}. Change">${hmm(f.minutes)}</button>${timerBit}${ga ? `<span class="note" data-ga="${id}">${gaText(ga)}</span>` : ''}</div>
+      ${due ? `<div class="dueline">Going around. Done? Tap ✓, or <button class="pill" type="button" data-act="extend" data-min="5" data-id="${id}">+5 min</button> <button class="pill" type="button" data-act="extend" data-min="15" data-id="${id}">+15 min</button></div>` : ''}
     </div>
     <button class="chk" type="button" data-act="toggle" data-id="${id}" aria-label="${f.landed ? `Not done: ${title}` : `Done: ${title}`}" aria-pressed="${!!f.landed}"></button>
     ${edit}
@@ -139,7 +153,9 @@ function render() {
     els.board.classList.add('hidden');
     els.intake.classList.remove('hidden');
     els.ghosts.classList.toggle('hidden', !!store.get('ctd_typed') || !!els.dump.value.trim());
-    radar.setTasks({ seq: [], hold: [] });
+    radar.setTasks({ seq: [], holdCount: 0 });
+    els.now.classList.add('hidden');
+    setTitle(null);
     return;
   }
   els.intake.classList.add('hidden');
@@ -156,29 +172,163 @@ function render() {
   pushRadar();
   radar.select(selectedId);
   placeTraffic();
+  renderNow();
+  scheduleAlert();
 }
 
 function pushRadar() {
   if (!board) return;
   const { seq, hold } = lanes();
-  const toRadar = (f, num) => ({ id: f.id, task: f.task, label: labelOf(f), num, progress: f.timer ? Math.min(1, elapsed(f) / (f.minutes * 60000)) : null });
-  radar.setTasks({ seq: seq.map((f, i) => toRadar(f, i + 1)), hold: hold.map((f, i) => ({ ...toRadar(f, `H${i + 1}`), progress: null })) });
+  const now = Date.now();
+  radar.setTasks({
+    seq: seq.map((f, i) => ({
+      id: f.id, task: f.task, label: labelOf(f), num: i + 1,
+      timer: f.timer ? { dueAt: now + remaining(f), paused: !!f.timer.pausedAt, remainingMs: remaining(f) } : null,
+    })),
+    holdCount: hold.length,
+  });
 }
 
-// Once a second: countdowns; every 5 s: nudge the timed blip along the final.
-let tickN = 0;
+// --- the big countdown (Pomofocus-style): the timed task, or the next one up ---
+const nowFlight = () => { if (!board) return null; const { seq } = lanes(); return seq.find((f) => f.timer) || seq[0] || null; };
+function renderNow() {
+  const f = nowFlight();
+  els.now.classList.toggle('hidden', !f);
+  if (!f) { els.nowBody.innerHTML = ''; setTitle(null); return; }
+  const id = esc(f.id);
+  const due = f.timer && remaining(f) < 0;
+  let actions;
+  if (!f.timer) actions = `<button class="btn btn-primary big" type="button" data-act="start" data-id="${id}">Start</button>`;
+  else if (due) actions = `<button class="btn btn-primary big" type="button" data-act="toggle" data-id="${id}">✓ Done</button>
+      <div class="extend"><button class="btn btn-ghost" type="button" data-act="extend" data-min="5" data-id="${id}">+5 min</button><button class="btn btn-ghost" type="button" data-act="extend" data-min="15" data-id="${id}">+15 min</button><button class="btn btn-ghost" type="button" data-act="later" data-id="${id}">Not today</button></div>`;
+  else actions = `<button class="btn btn-primary big" type="button" data-act="pause" data-id="${id}">${f.timer.pausedAt ? 'Resume' : 'Pause'}</button><button class="btn btn-ghost done" type="button" data-act="toggle" data-id="${id}">✓ Done</button>`;
+  els.now.classList.toggle('due', !!due);
+  els.nowBody.innerHTML = `
+    <p class="now-kicker">${f.timer ? 'Now' : 'Up next'} · <span class="now-cs">${esc(labelOf(f))}</span></p>
+    <p class="now-task">${esc(f.task)}</p>
+    <p class="now-clock" id="now-clock" role="timer" aria-live="off"></p>
+    <p class="now-phase" id="now-phase"></p>
+    <div class="now-actions">${actions}</div>`;
+  tickNow();
+}
+function phaseText(f) {
+  const L = labelOf(f), rwy = radar.runway();
+  if (!f.timer) return atc(`${L} is holding. Start to clear it for the approach.`, `${hmm(f.minutes)} planned`);
+  const rem = remaining(f);
+  if (rem < 0) {
+    const n = gaCount(f);
+    return atc(`${L}, go around${n > 1 ? ` (${n})` : ''}. Done? Or more time?`, `Over time${n > 1 ? ` · went around ×${n}` : ''}`);
+  }
+  if (f.timer.pausedAt) return atc(`${L}, hold your position. Paused.`, 'Paused');
+  const lands = new Date(Date.now() + rem).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (!fun()) return `Lands at ${lands}`;
+  const a = radar.active();
+  if (a?.id === f.id && a.phase === 'hold') return `${L}, holding. Expect approach in ${Math.max(1, Math.round(a.leaveInMs / 60000))} min, runway ${rwy}.`;
+  return `${L}, on approach runway ${rwy}. Touchdown ${lands}.`;
+}
+function tickNow() {
+  const f = nowFlight();
+  if (!f) return setTitle(null);
+  const c = $('now-clock'), p = $('now-phase');
+  const rem = f.timer ? remaining(f) : f.minutes * 60000;
+  const txt = rem < 0 ? `+${clock(rem)}` : clock(rem);
+  if (c && c.textContent !== txt) c.textContent = txt;
+  const ph = phaseText(f);
+  if (p && p.textContent !== ph) p.textContent = ph;
+  setTitle(f.timer ? f : null);
+}
+// Countdown in the tab title, so the timer is visible from other tabs.
+function setTitle(f) {
+  const t = !f ? 'Cleared To Do' : remaining(f) < 0 ? `+${clock(remaining(f))} over · ${f.task}` : `${f.timer.pausedAt ? '⏸ ' : ''}${clock(remaining(f))} · ${f.task}`;
+  if (document.title !== t) document.title = t;
+}
+
+// --- time's up: chime, optional desktop notification, tower message ---
+let audio = null;
+function unlockAudio() { // must run inside a click the first time
+  try { audio ??= new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch {}
+}
+els.chime.checked = store.get('ctd_chime') !== '0';
+els.chime.addEventListener('change', () => { store.set('ctd_chime', els.chime.checked ? '1' : '0'); if (els.chime.checked) { unlockAudio(); chime(); } });
+// Browsers only allow sound after a gesture: unlock on the first tap or key press after load.
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, () => { if (els.chime.checked) unlockAudio(); }, { once: true, capture: true });
+function chime() {
+  if (!els.chime.checked) return;
+  unlockAudio();
+  if (audio?.state !== 'running') return; // never queue notes to play on some later click
+  const t0 = audio.currentTime + 0.05;
+  for (const [hz, dt] of [[523.25, 0], [659.25, 0.3], [783.99, 0.6]]) { // soft three-note terminal chime
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = 'sine';
+    o.frequency.value = hz;
+    g.gain.setValueAtTime(0.0001, t0 + dt);
+    g.gain.exponentialRampToValueAtTime(0.16, t0 + dt + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dt + 1.3);
+    o.connect(g).connect(audio.destination);
+    o.start(t0 + dt);
+    o.stop(t0 + dt + 1.4);
+  }
+}
+// Desktop notifications: asked for the first time you start a timer (browsers only allow asking from a click),
+// or from the link under the countdown. Shown when the page isn't in front of you.
+const canNotify = 'Notification' in window;
+function syncNotify() {
+  const perm = canNotify ? Notification.permission : 'unsupported';
+  els.notify.classList.toggle('hidden', perm !== 'default');
+  els.notifyOn.classList.toggle('hidden', perm !== 'granted');
+  els.notifyOff.classList.toggle('hidden', perm !== 'denied');
+}
+async function askNotify() {
+  if (!canNotify || Notification.permission !== 'default') return;
+  try { await Notification.requestPermission(); } catch {}
+  syncNotify();
+}
+els.notify.addEventListener('click', askNotify);
+syncNotify();
+
+function timeUp(f) {
+  f._alerted = true;
+  f._wasDue = true;
+  f._lastGA = gaCount(f);
+  chime();
+  if (canNotify && Notification.permission === 'granted' && (document.hidden || !document.hasFocus())) {
+    try {
+      const n = new Notification(`Time’s up: ${f.task}`, { body: atc(`${labelOf(f)}, go around. Done, or more time?`, 'Done, or more time?'), tag: 'ctd-timeup', requireInteraction: true });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch {}
+  }
+  toast(atc(`${labelOf(f)}, go around.`, `Time’s up: ${f.task}`), { ms: 5000 });
+  say(`Time's up for ${f.task}`);
+  if (editingId || drag) renderNow(); else render();
+}
+// A one-shot timeout for the due moment (background tabs throttle the 1 s tick).
+let alertTimer = 0;
+function scheduleAlert() {
+  clearTimeout(alertTimer);
+  const f = board?.flights.find((x) => x.timer && !x.landed && !x.timer.pausedAt && !x._alerted);
+  if (!f) return;
+  const id = f.id;
+  alertTimer = setTimeout(() => { const g = find(id); if (g?.timer && !g.landed && !g.timer.pausedAt && !g._alerted && remaining(g) < 1000) timeUp(g); }, Math.max(0, remaining(f)) + 50);
+}
+
+// Once a second: countdowns, tab title, go-around count.
 setInterval(() => {
   if (!board) return;
+  tickNow();
   const f = board.flights.find((x) => x.timer && !x.landed);
   if (!f) return;
   const span = document.querySelector(`[data-countdown="${CSS.escape(f.id)}"]`);
   if (span) span.textContent = timerText(f);
   const isDue = remaining(f) < 0;
-  if (isDue !== !!f._wasDue) {
-    f._wasDue = isDue;
-    if (isDue) { toast(`Time’s up: ${f.task}`, { ms: 4000 }); say(`Time's up for ${f.task}`); }
-    render();
-  } else if (++tickN % 5 === 0 && !f.timer.pausedAt && !drag) pushRadar();
+  if (isDue && !f._alerted && !f.timer.pausedAt) return timeUp(f);
+  if (isDue !== !!f._wasDue) { f._wasDue = isDue; if (editingId || drag) renderNow(); else render(); return; }
+  const n = gaCount(f);
+  if (n > (f._lastGA || 0)) {
+    f._lastGA = n;
+    for (const el of document.querySelectorAll(`[data-ga="${CSS.escape(f.id)}"]`)) el.textContent = gaText(n);
+    if (!document.querySelector(`[data-ga="${CSS.escape(f.id)}"]`) && !editingId && !drag) render();
+    if (fun()) toast(`${labelOf(f)}, going around again.`, { ms: 4000 });
+  }
 }, 1000);
 
 function startTimer(id) {
@@ -187,15 +337,20 @@ function startTimer(id) {
   for (const x of board.flights) if (x !== f && x.timer) x.timer = null; // one at a time
   f.timer = { startedAt: new Date().toISOString(), pausedAt: null, accMs: 0 };
   f._wasDue = false;
+  f._alerted = false;
+  f._lastGA = 0;
+  unlockAudio();
+  askNotify();
   render();
   persist();
+  if (fun()) toast(`${labelOf(f)}, cleared for the approach, runway ${radar.runway()}. Touchdown in ${f.minutes} min.`, { ms: 4000 });
   say(`Timer started: ${hmm(f.minutes)} for ${f.task}`);
 }
 function pauseTimer(id, force) {
   const f = find(id);
   if (!f?.timer) return;
   const t = f.timer;
-  if (t.pausedAt && force !== 'pause') f.timer = { startedAt: new Date().toISOString(), pausedAt: null, accMs: t.accMs };
+  if (t.pausedAt && force !== 'pause') { f.timer = { ...t, startedAt: new Date().toISOString(), pausedAt: null }; unlockAudio(); }
   else if (!t.pausedAt) f.timer = { ...t, accMs: elapsed(f), pausedAt: new Date().toISOString() };
   render();
   persist();
@@ -207,6 +362,26 @@ function stopTimer(id) {
   f._wasDue = false;
   render();
   persist();
+}
+// After a go-around: N more minutes from now. The go-arounds so far are banked on the timer.
+function extend(id, mins) {
+  const f = find(id);
+  if (!f?.timer) return;
+  const ga = gaCount(f);
+  f.minutes = Math.min(600, Math.ceil(elapsed(f) / 60000) + mins);
+  f.timer = { ...f.timer, ga };
+  Object.assign(f, { _alerted: false, _wasDue: false, _lastGA: ga });
+  render();
+  persist();
+  toast(atc(`${labelOf(f)}, re-cleared for the approach. Touchdown in ${mins} min.`, `+${mins} min: ${f.task}`), { ms: 3000 });
+}
+function later(id) {
+  const f = find(id);
+  if (!f) return;
+  f.timer = null;
+  f._wasDue = false;
+  setLane(id, 'hold');
+  toast(atc(`${labelOf(f)}, hold. Not today.`, `Moved to Holding: ${f.task}`), { ms: 3000 });
 }
 
 // --- live arrivals in the sequence: small grey rows slotted in by time ---
@@ -227,7 +402,7 @@ function trafficRowHTML(a) {
 function placeTraffic() {
   if (drag) return; // never shuffle rows under a finger
   for (const r of document.querySelectorAll('.traffic-row')) r.remove();
-  if (!board || !showTrafficBox.checked || !arrivals.length) return;
+  if (!board || !fun() || !showTrafficBox.checked || !arrivals.length) return;
   const strips = [...els.seq.querySelectorAll(':scope > .strip')];
   const starts = [];
   let t = 0;
@@ -274,12 +449,24 @@ const radar = createRadar($('scope'), {
   onRange: (r) => { $('range').textContent = `${r} nm`; },
   onStatus: (t) => {
     const credit = $('radar-credit');
-    if (t.sim) credit.textContent = 'Background traffic: SIM (live feed unavailable)';
-    else if (t.attribution) credit.innerHTML = `Background traffic: <a href="${esc(t.attribution.url)}" target="_blank" rel="noopener">adsb.lol, ODbL</a>`;
+    if (t.sim) credit.textContent = 'Live traffic unavailable: Fun mode shows simulated aircraft';
+    else if (t.attribution) credit.innerHTML = `Live traffic from <a href="${esc(t.attribution.url)}" target="_blank" rel="noopener">adsb.lol</a> (ODbL)`;
   },
 });
 $('range').addEventListener('click', () => { $('range').textContent = `${radar.cycleRange()} nm`; });
 radar.start();
+
+const modeBtns = [...document.querySelectorAll('[data-set-mode]')];
+function setMode(m) {
+  mode = m;
+  store.set('ctd_mode', m);
+  document.body.dataset.mode = m;
+  for (const b of modeBtns) b.setAttribute('aria-pressed', String(b.dataset.setMode === m));
+  radar.setMode(m);
+  if (board) { placeTraffic(); tickNow(); }
+}
+for (const b of modeBtns) b.addEventListener('click', () => setMode(b.dataset.setMode));
+setMode(mode);
 
 // --- actions ---
 function toggleDone(id) {
@@ -297,7 +484,7 @@ function toggleDone(id) {
     f.landedAt = new Date().toISOString();
     f.timer = null;
     if (editingId === id) editingId = null;
-    toast(`Landed: ${f.task}`, { undo: () => { board.flights = before; render(); persist(); } });
+    toast(atc(`${labelOf(f)} landed, runway ${radar.runway()}.`, `Done: ${f.task}`), { undo: () => { board.flights = before; render(); persist(); } });
   }
   render();
   persist();
@@ -380,6 +567,8 @@ document.addEventListener('click', (e) => {
     case 'start': startTimer(id); break;
     case 'pause': pauseTimer(id); break;
     case 'stop': stopTimer(id); break;
+    case 'extend': extend(id, +b.dataset.min || 5); break;
+    case 'later': later(id); break;
   }
 });
 document.addEventListener('change', (e) => { if (e.target.dataset?.name) rename(e.target.dataset.name, e.target.value); });
@@ -525,7 +714,10 @@ async function restore() {
   try {
     const r = await fetch(`/api/boards?owner=${encodeURIComponent(OWNER)}`, { cache: 'no-store' });
     const data = await r.json();
-    if (r.ok && data.board) board = data.board;
+    if (r.ok && data.board) {
+      board = data.board;
+      for (const f of board.flights) if (f.timer && !f.landed) { const over = remaining(f) < 0; Object.assign(f, { _alerted: over, _wasDue: over, _lastGA: gaCount(f) }); }
+    }
   } catch (err) {
     console.warn('[CTD] restore failed', err);
   }
